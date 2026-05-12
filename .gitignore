@@ -1,0 +1,47 @@
+# bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# packaging / build
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+pip-wheel-metadata/
+wheels/
+
+# virtual environments
+.venv/
+venv/
+ENV/
+
+# env files (often secrets)
+.env
+.env.*
+!.env.example
+
+# tooling / caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.cache/
+coverage.xml
+*.cover
+.hypothesis/
+
+# pyenv pin (often committed explicitly; uncomment to ignore locally)
+# .python-version
+
+# notebooks
+.ipynb_checkpoints/
+
+# IDE / editors
+.idea/
+*.swp
+*.swo
+*~
