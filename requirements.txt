@@ -1,4 +1,6 @@
+# core runtime (matches pyproject [project] dependencies)
 tokenizers>=0.15
 transformers>=4.43
+
+# development (matches pyproject optional-dependencies dev)
 pytest>=7
-# scripts/test_load_llama.py needs a torch install appropriate for your platform/cuda.

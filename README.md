@@ -14,7 +14,58 @@ vocabulary.
 state and tool semantics, produces more interpretable and more
 recoverable agent behavior than a chat envelope retrofitted with tool
 calls.
- 
+
+## Installation
+
+- **Python** 3.10 or newer.
+
+- **Editable install (library + runtime):**
+
+  ```bash
+  pip install -e .
+  ```
+
+- **Development (pytest):**
+
+  ```bash
+  pip install -e ".[dev]"
+  ```
+
+  Or mirror the same pins with `requirements.txt` (core + pytest only; see comments in that file for optional PyTorch / NumPy):
+
+  ```bash
+  pip install -r requirements.txt
+  pip install -e .
+  ```
+
+- **PyTorch + large-model scripts and GPU tests:** transformers alone does not install PyTorch. Use a build appropriate for your CPU or CUDA from [pytorch.org](https://pytorch.org/), or:
+
+  ```bash
+  pip install -e ".[llm-scripts]"
+  ```
+
+  (`llm-scripts` is `torch>=2.0` in `pyproject.toml`; you may prefer a platform-specific wheel over the generic extra.)
+
+- **`apply_trajectory_template(..., return_tensors="np")`:** install NumPy (`pip install -e ".[tokenizer-numpy]"` or any `numpy>=1.24`).
+
+- **Hugging Face:** tokenizer and model tests expect access to the gated checkpoint `meta-llama/Llama-3.1-8B`. Authenticate with `huggingface-cli login` (or env token) before running those tests.
+
+## Tests
+
+From the repository root:
+
+```bash
+pytest
+```
+
+`pyproject.toml` sets `testpaths` and `pythonpath=["src"]`. Some tests load the Llama tokenizer or full model and **skip** if the hub is unreachable or **CUDA / torch** are missing (for example `tests/runtime/test_hf_generator.py` and the causal-LM case in `tests/test_llama_gpu_integration.py`).
+
+If your shell mixes in **ROS** Python paths (for example after `source /opt/ros/.../setup.bash`), old `pytest11` plugins can crash under Python 3.12. In that situation run:
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest
+```
+
 ## What's in the box
  
 The Telos package separates the format SDK (what other people would
@@ -25,17 +76,18 @@ used here for our own evaluations).
 src/telos/
 ├── constants.py        SDK: frame types, owner table, token map
 ├── frames.py           SDK: Frame dataclass, parser, renderer, sanitize
-├── tokenizer.py        SDK: tokenizer adapter for Llama-3.1
+├── tokenizer.py        SDK: tokenizer adapter for Llama-3.1; encode/decode, apply_trajectory_template
 ├── trajectory.py       SDK: Trajectory container with dict/frame conversion
 ├── validators.py       SDK: sequence-level validation
 ├── sdk.py              SDK: step(), the stateless trajectory-advancement API
 └── runtime/            Reference runtime (one possible implementation)
     ├── tools.py        ToolRegistry, Tool, ToolError
-    └── runtime.py      run(), RunResult, terminal-action handling
+    ├── runtime.py      run(), RunResult, terminal-action handling
+    └── hf_generator.py HfGenerator: AutoModelForCausalLM continuation helper
 ```
  
 Anyone building a different runtime needs only the SDK modules; the
-`runtime/` subpackage is not a dependency.
+`runtime/` subpackage is not required for defining or parsing Telos-only artifacts.
  
 ## Frame types
  
@@ -56,6 +108,9 @@ Anyone building a different runtime needs only the SDK modules; the
 Markers are mapped to `<|reserved_special_token_0|>` through
 `<|reserved_special_token_10|>` in the Llama-3.1 tokenizer. Aliasing
 happens at the string level; the underlying tokenizer is unmodified.
+`TelosTokenizer.apply_trajectory_template` renders a `Trajectory` to
+wire text and optionally returns token ids (analogous to
+`PreTrainedTokenizer.apply_chat_template`).
  
 ## Example trajectory
  
@@ -127,7 +182,7 @@ namespace tools {
   embedded in a frame.
 ## Next steps
  
-- [ ] HF generator implementation (`AutoModelForCausalLM` wrapper matching the `Generator` signature)
+- [x] HF generator (`HfGenerator` in `runtime/hf_generator.py`, wraps `AutoModelForCausalLM.generate`)
 - [ ] Hand-authored seed trajectories
 - [ ] Synthetic data generation pipeline
 - [ ] LoRA fine-tune of Llama-3.1-8B-base on the Telos format
