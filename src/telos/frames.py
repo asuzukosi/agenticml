@@ -1,5 +1,5 @@
 """
-frame definitions, paraser and render for th telos wire format
+frame definitions, paraser and render for the telos wire format
 a talos trajectory is a sequence of frames. each frams opens with one of the 11 talos marker tokens and enxtends until the next marker token or end-of-string. there are no closing tokens
 """
 from __future__ import annotations

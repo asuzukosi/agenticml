@@ -3,7 +3,7 @@ telos sdk for stateless trajectory advancement
 the public entry point is `step()`. given a trajectory and a tool schema, `step()` advances the trajectory by one generation cycle:
 it injects the tool definitions into the prompt, calls the model, parses the model's output, and returns the extended trajectory.
 
-sdk does not execute tools, when the model emits an action, the calleer si responsible for 
+sdk does not execute tools, when the model emits an action, the caller is responsible for 
 running the tool and appending the result frame before calling `step()` again.
 """
 
@@ -100,7 +100,7 @@ def step(
     tokenizer,
     generate: Generator,
     max_new_tokens: int = 512,
-    strict: bool = False,
+    strict: bool = True,
 ) -> StepResult:
     """advance the trajectory by one generation cycle."""
     input_traj = trajectory if isinstance(trajectory, Trajectory) else Trajectory(trajectory)

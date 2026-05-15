@@ -1,0 +1,4 @@
+tokenizers>=0.15
+transformers>=4.43
+pytest>=7
+# scripts/test_load_llama.py needs a torch install appropriate for your platform/cuda.

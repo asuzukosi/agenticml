@@ -1,7 +1,6 @@
 """
 tokenizer adapter for telos v1.
 
-wraps a llama-3.1 tokenizer and renames a contiguous range of its
 reserved special tokens to telos frame markers. The rename is real -
 the underlying tokenizer's added_tokens_decoder is modified, so when
 the tokenizer is saved the rename persists.

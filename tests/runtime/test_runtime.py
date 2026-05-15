@@ -85,6 +85,12 @@ def test_registry_calls_tool_successfully():
     assert reg.call("upper", {"text": "hi"}) == "HI"
 
 
+def test_registry_callable_invokes_tool():
+    reg = ToolRegistry()
+    reg.register(Tool("upper", lambda text: text.upper(), _trivial_schema("upper", text="")))
+    assert reg("upper", {"text": "hi"}) == "HI"
+
+
 def test_run_terminal_answer():
     """Model emits an answer action; run() stops with that answer."""
     reg = ToolRegistry()

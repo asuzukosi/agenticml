@@ -51,8 +51,8 @@ class ToolRegistry:
         except Exception as e:
             raise ToolError(f"tool {name!r} raised: {type(e).__name__}: {e}") from e
 
-    def __call__(self, name: str, **args: dict[str, Any]) -> Any:
-        return self.call(name, **args)
+    def __call__(self, name: str, args: dict[str, Any]) -> Any:
+        return self.call(name, args=args)
 
     def __getitem__(self, name: str) -> Tool:
         return self.get(name)

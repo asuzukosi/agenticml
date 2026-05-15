@@ -42,7 +42,7 @@ def run(
     generate: Generator,
     max_iterations: int = 10,
     max_new_tokens: int = 512,
-    strict: bool = False,
+    strict: bool = True,
 ) -> RunResult:
     """
     run a trajectory through a tool registry.
