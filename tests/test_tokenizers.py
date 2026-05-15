@@ -55,6 +55,48 @@ def test_default_base_model_is_llama31_8b():
     assert DEFAULT_BASE_MODEL == "meta-llama/Llama-3.1-8B"
 
 
+def test_apply_trajectory_template_string_matches_render(tokenizer):
+    from telos.frames import end, goal, mission, render
+    from telos.trajectory import Trajectory
+
+    frames = [goal("hello"), mission("task"), end()]
+    tr = Trajectory(frames)
+    assert tokenizer.apply_trajectory_template(tr, tokenize=False) == render(frames)
+
+
+def test_apply_trajectory_template_accepts_frame_dicts(tokenizer):
+    from telos.trajectory import Trajectory
+
+    tr = Trajectory([{"type": "goal", "content": "x"}, {"type": "end", "content": None}])
+    wire = tokenizer.apply_trajectory_template(tr, tokenize=False)
+    assert "<|goal|>x" in wire
+    assert "<|end|>" in wire
+
+
+def test_apply_trajectory_template_tokenize_matches_encode(tokenizer):
+    from telos.frames import end, goal, mission, render
+    from telos.trajectory import Trajectory
+
+    tr = Trajectory([goal("a"), mission("b"), end()])
+    wire = render(tr.to_frames())
+    assert tokenizer.apply_trajectory_template(tr, tokenize=True) == tokenizer.encode(wire)
+
+
+def test_apply_trajectory_template_return_tensors_pt(tokenizer):
+    torch = pytest.importorskip("torch")
+    from telos.frames import end, goal
+    from telos.trajectory import Trajectory
+
+    tr = Trajectory([goal("hi"), end()])
+    wire = tokenizer.apply_trajectory_template(tr, tokenize=False)
+    t = tokenizer.apply_trajectory_template(
+        tr,
+        tokenize=True,
+        return_tensors="pt",
+    )
+    assert isinstance(t, torch.Tensor)
+    assert t.shape == (1, len(tokenizer.encode(wire)))
+
 
 def test_each_marker_encodes_to_single_token(tokenizer):
     for telos_name, _slot in TELOS_TOKEN_MAP:

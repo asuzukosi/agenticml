@@ -14,6 +14,12 @@ from transformers import AutoModelForCausalLM
 
 from telos.constants import DEFAULT_BASE_MODEL, TELOS_TOKEN_MAP
 from telos.tokenizer import TelosTokenizer
+import torch
+
+pytestmark = pytest.mark.skipif(
+    not torch.cuda.is_available(),
+    reason="CUDA required for hf_generator integration tests",
+)
 
 @pytest.fixture(scope="module")
 def tt():

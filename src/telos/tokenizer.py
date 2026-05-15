@@ -22,11 +22,12 @@ token mapping (telos v1):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
-from tokenizers import Tokenizer, AddedToken
+from typing import Any, Iterable, Union
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
 from telos.constants import TELOS_TOKEN_MAP, TELOS_OWNERS, DEFAULT_BASE_MODEL
 from telos.constants import FrameType, FrameOwner
+from telos.frames import render
+from telos.trajectory import FrameLike, Trajectory
 
 def _reserved_name(slot: int) -> str:
     return f"<|reserved_special_token_{slot}|>"
@@ -202,3 +203,32 @@ class TelosTokenizer:
                 f"id={tok.token_id:<7} owner={tok.owner}"
             )
         return "\n".join(lines)
+
+    def apply_trajectory_template(
+        self,
+        trajectory: Union[Trajectory, Iterable[FrameLike]],
+        *,
+        tokenize: bool = True,
+        return_tensors: str | None = None,
+        **kwargs: dict[str, Any],
+    ) -> Union[str, list[int], Any]:
+        """render a trajectory to telos wire text, then optionally tokenize."""
+        if not isinstance(trajectory, Trajectory):
+            trajectory = Trajectory(trajectory)
+        text = render(trajectory.to_frames())
+        if not tokenize:
+            if return_tensors is not None:
+                raise ValueError("return_tensors is only valid when tokenize=True")
+            return text
+        ids = self.encode(text)
+        if return_tensors is None:
+            return ids
+        if return_tensors == "pt":
+            import torch
+
+            return torch.tensor([ids])
+        if return_tensors == "np":
+            import numpy as np
+
+            return np.array([ids])
+        raise ValueError(f"unsupported return_tensors: {return_tensors!r}")
