@@ -10,7 +10,7 @@ first-class objects in the serialization itself. Each frame is
 delimited by a single special token from the model's reserved
 vocabulary.
  
-The hypothesis: an interface designed for agent loops, with explicit
+`The hypothesis`: an interface designed for agent loops, with explicit
 state and tool semantics, produces more interpretable and more
 recoverable agent behavior than a chat envelope retrofitted with tool
 calls.
