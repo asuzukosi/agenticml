@@ -15,6 +15,7 @@ print(f"model type :{model.dtype}")
 dm = getattr(model, "hf_device_map", None)
 print(f"hf device map :{dm}")
 print(f"vram allocated :")
+print("model word embeddings tied: ", model.config.tie_word_embeddings)
 for i in range(torch.cuda.device_count()):
     allocated = torch.cuda.memory_allocated(i) / 1e9
     total = torch.cuda.get_device_properties(i).total_memory / 1e9

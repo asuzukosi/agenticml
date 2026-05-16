@@ -14,7 +14,7 @@ class HfGenerator:
                         dtype: Optional[torch.dtype] = torch.bfloat16, 
                         device_map: Optional[str] = "auto",
                         **model_kwargs: dict[str, Any]) -> HfGenerator:
-        model: AutoModelForCausalLM = AutoModelForCausalLM.from_pretrained(model_name_or_path, dtype=dtype, device_map=device_map, **model_kwargs)
+        model: AutoModelForCausalLM = AutoModelForCausalLM.from_pretrained(model_name_or_path, dtype=dtype, torch_dtype=dtype, device_map=device_map, **model_kwargs)
         return cls(model)
 
     def _first_execution_device(self) -> torch.device:
@@ -30,16 +30,16 @@ class HfGenerator:
 
     def generate(self, input_ids: list[int], stop_token_id: int, max_new_tokens: int) -> list[int]:
         device = self._first_execution_device()
-        input_ids = torch.tensor([input_ids], device=device, dtype=torch.long)
-        attention_mask = torch.ones_like(input_ids, device=device)
+        input_tensors = torch.tensor([input_ids], device=device, dtype=torch.long)
+        attention_mask = torch.ones_like(input_tensors)
         with torch.inference_mode():
-            out = self.model.generate(input_ids, 
+            out = self.model.generate(input_tensors, 
             max_new_tokens=max_new_tokens, 
             attention_mask=attention_mask,
             do_sample=False, 
             pad_token_id=stop_token_id, 
             eos_token_id=stop_token_id)
-        return out[0].tolist()[input_ids.shape[1]:]
+        return out[0].tolist()[len(input_ids):]
 
     def __call__(self, input_ids: list[int], stop_token_id: int, max_new_tokens: int) -> list[int]:
         return self.generate(input_ids, stop_token_id, max_new_tokens)
