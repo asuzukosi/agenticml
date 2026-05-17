@@ -1,8 +1,11 @@
 from __future__ import annotations
 import argparse
 import json
+import torch
 from datasets import load_dataset
-from transformers import AutoTokenizer, Trainer
+from transformers import Trainer
+from telos.tokenizer import TelosTokenizer
+from telos.trajectory import Trajectory
 from scripts.training_scripts.train_lora_common import (
     TELOS_MODEL_MARKERS,
     RunConfig,
@@ -63,7 +66,8 @@ def main() -> None:
     set_seed(cfg.seed)
     maybe_init_wandb(cfg)
     print(f"loading tokenizer from {cfg.model_id}...")
-    tokenizer = AutoTokenizer.from_pretrained(cfg.model_id)
+    tt = TelosTokenizer.from_pretrained(cfg.model_id)
+    tokenizer = tt.hf
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -78,21 +82,34 @@ def main() -> None:
     if args.limit_eval:
         eval_ds = eval_ds.select(range(min(args.limit_eval, len(eval_ds))))
 
-    marker_ids = set(tokenizer.convert_tokens_to_ids(TELOS_MODEL_MARKERS))
-    runtime_markers = ["<|goal|>", "<|mission|>", "<|obs|>", "<|result|>", "<|feedback|>", "<|reward|>"]
-    runtime_marker_ids = set(tokenizer.convert_tokens_to_ids(runtime_markers))
+    marker_ids = {tt.belief_id, tt.plan_id, tt.think_id, tt.action_id, tt.end_id}
+    runtime_marker_ids = {tt.goal_id, tt.mission_id, tt.obs_id, tt.result_id, tt.feedback_id, tt.reward_id}
 
     def _tok(ex):
         frames = json.loads(ex["frames"])
-        text = "".join(f"<|{f['type']}|>{json.dumps(f['content']) if isinstance(f['content'], (dict, list)) else f['content']}\n" for f in frames)
-        ids = tokenizer(text, add_special_tokens=False)["input_ids"]
+        trajectory = Trajectory(frames)
+        ids = tt.apply_trajectory_template(trajectory, tokenize=True, return_tensors="pt")
+        # normalize to flat python list[int]
+        if isinstance(ids, torch.Tensor):
+            if ids.ndim == 2 and ids.shape[0] == 1:
+                ids = ids[0]
+            ids = ids.tolist()
+
+        # handle accidental nested list
+        if isinstance(ids, list) and len(ids) > 0 and isinstance(ids[0], list):
+            ids = ids[0]
+
+        if not isinstance(ids, list) or len(ids) == 0 or not isinstance(ids[0], int):
+            return {"input_ids": [], "labels": [], "attention_mask": []}
         labels = mask_telos_runtime_labels(ids, marker_ids, runtime_marker_ids)
         ids, labels = truncate(ids, labels, cfg.max_length)
         attn = [1] * len(ids)
         return {"input_ids": ids, "labels": labels, "attention_mask": attn}
 
     train_tok = train_ds.map(_tok, remove_columns=train_ds.column_names)
+    train_tok = train_tok.filter(lambda x: len(x["input_ids"]) > 0)
     eval_tok = eval_ds.map(_tok, remove_columns=eval_ds.column_names)
+    eval_tok = eval_tok.filter(lambda x: len(x["input_ids"]) > 0)
 
     targs = make_training_args(cfg)
     # add custom collator to handle telos runtime labels

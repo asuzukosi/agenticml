@@ -22,9 +22,9 @@ class RunConfig:
     output_dir: str
     project: str
     run_name: str
-    max_length: int = 2048
-    per_device_batch_size: int = 2
-    grad_accum_steps: int = 16
+    max_length: int = 1536
+    per_device_batch_size: int = 1
+    grad_accum_steps: int = 32
     learning_rate: float = 2e-4
     num_epochs: float = 2.0
     warmup_ratio: float = 0.03
