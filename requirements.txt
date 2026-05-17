@@ -1,7 +1,12 @@
-# core runtime (matches pyproject [project] dependencies)
+# runtime (matches pyproject [project] dependencies)
 tokenizers>=0.15
 transformers>=4.43
+datasets
+accelerate
+peft
+pyarrow
+huggingface_hub
+wandb>=0.16
 
 # development (matches pyproject optional-dependencies dev)
 pytest>=7
-wandb>=0.16
