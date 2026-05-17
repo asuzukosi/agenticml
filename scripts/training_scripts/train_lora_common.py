@@ -75,7 +75,8 @@ def build_lora_model(model_id: str):
 
 
 def make_training_args(cfg: RunConfig) -> TrainingArguments:
-    return TrainingArguments(
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    kwargs = dict(
         output_dir=cfg.output_dir,
         num_train_epochs=cfg.num_epochs,
         per_device_train_batch_size=cfg.per_device_batch_size,
@@ -86,9 +87,6 @@ def make_training_args(cfg: RunConfig) -> TrainingArguments:
         warmup_ratio=cfg.warmup_ratio,
         max_grad_norm=cfg.max_grad_norm,
         weight_decay=0.1,
-        adam_beta1=0.9,
-        adam_beta2=0.95,    # spec: 0.95, not default 0.999
-        adam_epsilon=1e-8,
         bf16=True,
         logging_steps=cfg.logging_steps,
         eval_steps=cfg.eval_steps,
@@ -100,12 +98,16 @@ def make_training_args(cfg: RunConfig) -> TrainingArguments:
         run_name=cfg.run_name,
         dataloader_num_workers=0,
         remove_unused_columns=False,
-        fsdp="full_shard auto_wrap",
-        fsdp_config={
+    )
+
+    if world_size > 1:
+        kwargs["fsdp"] = "full_shard auto_wrap"
+        kwargs["fsdp_config"] = {
             "use_orig_params": True,
             "activation_checkpointing": True,
-        },
-    )
+        }
+
+    return TrainingArguments(**kwargs)
 
 
 def maybe_init_wandb(cfg: RunConfig) -> None:
