@@ -1,9 +1,10 @@
 from __future__ import annotations
+
 import os
 import random
 from dataclasses import dataclass
-from pathlib import Path
 from typing import List
+
 import numpy as np
 import torch
 from transformers import AutoModelForCausalLM, TrainingArguments
@@ -22,10 +23,13 @@ class RunConfig:
     output_dir: str
     project: str
     run_name: str
+    # Memory-tight values empirically validated on 2x 4060 Ti 16 GB.
+    # Effective batch size = 1 * 32 = 32 per machine, matches spec.
     max_length: int = 1536
     per_device_batch_size: int = 1
     grad_accum_steps: int = 32
     learning_rate: float = 2e-4
+    max_grad_norm: float = 1.0
     num_epochs: float = 2.0
     warmup_ratio: float = 0.03
     seed: int = 42
@@ -42,10 +46,9 @@ def set_seed(seed: int) -> None:
 
 
 def build_lora_model(model_id: str):
-    """build a lora model from a base model."""
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
     )
     model.gradient_checkpointing_enable()
     model.enable_input_require_grads()
@@ -64,6 +67,7 @@ def build_lora_model(model_id: str):
             "gate_proj",
             "up_proj",
             "down_proj",
+            "lm_head",       # spec: include lm_head
         ],
     )
     model = get_peft_model(model, lora_cfg)
@@ -80,8 +84,11 @@ def make_training_args(cfg: RunConfig) -> TrainingArguments:
         learning_rate=cfg.learning_rate,
         lr_scheduler_type="cosine",
         warmup_ratio=cfg.warmup_ratio,
-        max_grad_norm=1.0,
+        max_grad_norm=cfg.max_grad_norm,
         weight_decay=0.1,
+        adam_beta1=0.9,
+        adam_beta2=0.95,    # spec: 0.95, not default 0.999
+        adam_epsilon=1e-8,
         bf16=True,
         logging_steps=cfg.logging_steps,
         eval_steps=cfg.eval_steps,
@@ -91,11 +98,13 @@ def make_training_args(cfg: RunConfig) -> TrainingArguments:
         save_total_limit=3,
         report_to=["wandb"],
         run_name=cfg.run_name,
-        gradient_checkpointing=True,
-        dataloader_num_workers=2,
+        dataloader_num_workers=0,
         remove_unused_columns=False,
         fsdp="full_shard auto_wrap",
-        fsdp_config={"use_orig_params": True},
+        fsdp_config={
+            "use_orig_params": True,
+            "activation_checkpointing": True,
+        },
     )
 
 
@@ -121,15 +130,29 @@ def truncate(ids: List[int], labels: List[int], max_length: int):
         labels = labels[:max_length]
     return ids, labels
 
+
+def _flat(v):
+    if isinstance(v, list) and len(v) > 0 and isinstance(v[0], list):
+        return v[0]
+    return v
+
+
 def causal_lm_collator(features: list[dict], pad_token_id: int) -> dict:
-    """collate a list of features for causal language modeling."""
+    features = [f for f in features if len(f.get("input_ids", [])) > 0]
+    if not features:
+        raise ValueError("Empty batch after filtering invalid features")
+
+    for f in features:
+        f["input_ids"] = _flat(f["input_ids"])
+        f["attention_mask"] = _flat(f["attention_mask"])
+        f["labels"] = _flat(f["labels"])
+
     max_len = max(len(f["input_ids"]) for f in features)
 
     input_ids, attention_mask, labels = [], [], []
     for f in features:
         n = len(f["input_ids"])
         pad = max_len - n
-
         input_ids.append(f["input_ids"] + [pad_token_id] * pad)
         attention_mask.append(f["attention_mask"] + [0] * pad)
         labels.append(f["labels"] + [-100] * pad)
@@ -161,9 +184,5 @@ def maybe_push_artifacts(
         if not merged_repo_id:
             raise ValueError("--merged-repo-id is required when --push-merged is set")
         merged = model.merge_and_unload()
-        merged_dir = Path(output_dir) / "merged"
-        merged_dir.mkdir(parents=True, exist_ok=True)
-        merged.save_pretrained(str(merged_dir))
-        tokenizer.save_pretrained(str(merged_dir))
         merged.push_to_hub(merged_repo_id)
         tokenizer.push_to_hub(merged_repo_id)
