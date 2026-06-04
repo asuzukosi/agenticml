@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from telos.evaluation.format_validity import evaluate
+from telos.evaluation.harness.load import AdapterMode
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -16,8 +17,9 @@ def main(argv: list[str] | None = None) -> None:
     )
     p.add_argument(
         "--adapter-mode",
-        default="merged",
-        choices=["merged", "peft"],
+        type=AdapterMode,
+        default=AdapterMode.MERGED,
+        choices=list(AdapterMode),
     )
     p.add_argument(
         "--adapter-id",
@@ -42,8 +44,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--max-new-tokens", type=int, default=1024)
     args = p.parse_args(argv)
 
-    if args.adapter_mode == "peft" and not args.adapter_id:
-        p.error("--adapter-mode='peft' requires --adapter-id")
+    if args.adapter_mode == AdapterMode.PEFT and not args.adapter_id:
+        p.error(f"--adapter-mode={AdapterMode.PEFT.value!r} requires --adapter-id")
 
     evaluate(
         model_id=args.model,

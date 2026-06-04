@@ -18,8 +18,9 @@ from typing import Any, Callable, Optional
 import torch
 from datasets import load_dataset
 from tqdm import tqdm
-from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedTokenizerBase
+from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
+from telos.evaluation.harness.load import AdapterMode, load_model, model_device
 from telos.frames import parse as telos_parse, render as telos_render
 from telos.tokenizer import TelosTokenizer
 from telos.trajectory import Trajectory
@@ -61,48 +62,6 @@ def _telos_load_tokenizer(model_id: str) -> TelosTokenizer:
 
 def _chatml_load_tokenizer(model_id: str) -> PreTrainedTokenizerBase:
     return AutoTokenizer.from_pretrained(model_id)
-
-
-def _inference_load_kwargs(dtype: torch.dtype) -> dict[str, Any]:
-    """cuda:0 + cpu offload when gpu present; avoids multi-gpu auto split."""
-    if not torch.cuda.is_available():
-        return {"torch_dtype": dtype, "device_map": "cpu"}
-    total_gib = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-    cap = max(1, int(total_gib - 2))
-    return {
-        "torch_dtype": dtype,
-        "device_map": "auto",
-        "max_memory": {0: f"{cap}GiB", "cpu": "100GiB"},
-        "offload_buffers": True,
-    }
-
-
-def load_model(
-    model_id: str,
-    adapter_mode: str,
-    adapter_id: Optional[str] = None,
-    dtype: torch.dtype = torch.bfloat16,
-):
-    load_kw = _inference_load_kwargs(dtype)
-    if adapter_mode == "merged":
-        return AutoModelForCausalLM.from_pretrained(model_id, **load_kw)
-    if adapter_mode == "peft":
-        if not adapter_id:
-            raise ValueError("adapter_mode='peft' requires adapter_id")
-        try:
-            from peft import PeftModel
-        except ImportError as e:
-            raise ImportError("adapter_mode='peft' requires: pip install peft") from e
-        base = AutoModelForCausalLM.from_pretrained(model_id, **load_kw)
-        return PeftModel.from_pretrained(base, adapter_id)
-    raise ValueError(f"adapter_mode must be 'merged' or 'peft', got: {adapter_mode!r}")
-
-
-def _model_device(model) -> torch.device:
-    try:
-        return model.device
-    except Exception:
-        return next(model.parameters()).device
 
 
 def _loads_field(value: Any) -> Any:
@@ -285,7 +244,7 @@ def generate_completion(
     max_new_tokens: int = 1024,
     stop_token_ids: Optional[list[int]] = None,
 ) -> tuple[str, int]:
-    device = _model_device(model)
+    device = model_device(model)
     inputs = torch.tensor([input_ids], device=device, dtype=torch.long)
     input_len = inputs.shape[1]
     pad_id = spec.pad_token_id(tokenizer)
@@ -450,7 +409,7 @@ def evaluate(
     fmt: str,
     output_path: Path,
     *,
-    adapter_mode: str = "merged",
+    adapter_mode: AdapterMode | str = AdapterMode.MERGED,
     adapter_id: Optional[str] = None,
     num_examples: int = 100,
     sample_seed: int = 42,
@@ -461,10 +420,11 @@ def evaluate(
 
     spec = FORMAT_SPECS[fmt]
 
-    print(f"loading base model {model_id} (adapter_mode={adapter_mode})...")
-    if adapter_mode == "peft":
+    mode = AdapterMode(adapter_mode)
+    print(f"loading base model {model_id} (adapter_mode={mode.value})...")
+    if mode == AdapterMode.PEFT:
         print(f"  adapter: {adapter_id}")
-    model = load_model(model_id, adapter_mode, adapter_id)
+    model = load_model(model_id, mode, adapter_id)
     print(f"loading tokenizer for {fmt}...")
     tokenizer = spec.load_tokenizer(model_id)
     model.eval()
@@ -500,7 +460,7 @@ def evaluate(
             {
                 "model": model_id,
                 "adapter": adapter_id,
-                "adapter_mode": adapter_mode,
+                "adapter_mode": mode.value,
                 "dataset": dataset_id,
                 "split": split,
                 "format": fmt,
