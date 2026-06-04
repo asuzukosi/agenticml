@@ -7,6 +7,7 @@ usage:
 from __future__ import annotations
 
 import json
+import random
 import re
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
@@ -119,11 +120,15 @@ def _telos_stop_ids(tokenizer) -> list[int]:
 
 
 def _chatml_stop_ids(tokenizer) -> list[int]:
-    ids = [
-        tokenizer.convert_tokens_to_ids(t)
-        for t in ("<|eot_id|>", "<|eom_id|>", tokenizer.eos_token_id)
-    ]
-    return [i for i in ids if i is not None]
+    ids: list[int] = []
+    for token in ("<|eot_id|>", "<|eom_id|>"):
+        tid = tokenizer.convert_tokens_to_ids(token)
+        if tid is not None and tid != tokenizer.unk_token_id:
+            ids.append(tid)
+    eos = tokenizer.eos_token_id
+    if eos is not None and eos not in ids:
+        ids.append(eos)
+    return ids or [tokenizer.eos_token_id]
 
 
 def _telos_check(row: dict, generated_text: str) -> tuple[bool, bool, Optional[str], list[str]]:
@@ -245,6 +250,14 @@ def _eval_row(
     )
 
 
+def _random_sample_dataset(ds, sample_size: int, seed: int):
+    n = len(ds)
+    if sample_size <= 0 or sample_size >= n:
+        return ds
+    indices = random.Random(seed).sample(range(n), sample_size)
+    return ds.select(indices)
+
+
 def evaluate_format_validity(
     model,
     tokenizer,
@@ -327,7 +340,8 @@ def evaluate(
     *,
     adapter_mode: str = "merged",
     adapter_id: Optional[str] = None,
-    limit: Optional[int] = None,
+    sample_size: int = 100,
+    sample_seed: int = 42,
     max_new_tokens: int = 1024,
 ) -> None:
     if fmt not in FORMAT_SPECS:
@@ -340,9 +354,16 @@ def evaluate(
     model.eval()
 
     print(f"loading dataset {dataset_id} split={split}...")
-    ds = load_dataset(dataset_id, split=split)
-    if limit:
-        ds = ds.select(range(min(limit, len(ds))))
+    ds_full = load_dataset(dataset_id, split=split)
+    split_len = len(ds_full)
+    ds = _random_sample_dataset(ds_full, sample_size, sample_seed)
+    if len(ds) < split_len:
+        print(
+            f"random sample: {len(ds)} / {split_len} examples "
+            f"(sample_size={sample_size}, seed={sample_seed})"
+        )
+    else:
+        print(f"evaluating full split ({split_len} examples)")
 
     results = evaluate_format_validity(
         model, tokenizer, ds, fmt, max_new_tokens=max_new_tokens
@@ -359,6 +380,9 @@ def evaluate(
                 "dataset": dataset_id,
                 "split": split,
                 "format": fmt,
+                "split_size": split_len,
+                "sample_size": sample_size,
+                "sample_seed": sample_seed,
                 "num_examples": len(results),
                 "summary": summary,
                 "results": [asdict(r) for r in results],

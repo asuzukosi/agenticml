@@ -27,7 +27,18 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--dataset", required=True)
     p.add_argument("--split", default="eval")
     p.add_argument("--output", required=True, type=Path)
-    p.add_argument("--limit", type=int, default=None)
+    p.add_argument(
+        "--sample-size",
+        type=int,
+        default=100,
+        help="number of examples to evaluate (random sample; 0 = full split)",
+    )
+    p.add_argument(
+        "--sample-seed",
+        type=int,
+        default=42,
+        help="random seed for choosing the eval subset",
+    )
     p.add_argument("--max-new-tokens", type=int, default=1024)
     args = p.parse_args(argv)
 
@@ -42,7 +53,8 @@ def main(argv: list[str] | None = None) -> None:
         output_path=args.output,
         adapter_mode=args.adapter_mode,
         adapter_id=args.adapter_id,
-        limit=args.limit,
+        sample_size=args.sample_size,
+        sample_seed=args.sample_seed,
         max_new_tokens=args.max_new_tokens,
     )
 

@@ -78,7 +78,8 @@ telos train-chatml-lora \
 
 
 # --- format validity eval: telos ---
-# generate telos completions on the eval split and score parse/structural validity; peft = base + adapter
+# random sample of 100 eval examples by default (--sample-size 0 for full split)
+# generate telos completions and score parse/structural validity; peft = base + adapter
 telos eval-format-validity \
   --format telos \
   --model kosiasuzu/telos-agent-llama-3.1-8b-init \
