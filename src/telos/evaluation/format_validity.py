@@ -18,8 +18,8 @@ import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from telos.constants import FrameType
-from telos.frames import Frame, parse as telos_parse, render as telos_render
+from telos.frames import parse as telos_parse, render as telos_render
+from telos.trajectory import Trajectory
 from telos.validators import validate as telos_validate
 
 TELOS_MODEL_TYPES = frozenset({"belief", "plan", "think", "action"})
@@ -84,17 +84,18 @@ def _telos_cut_index(frames: list[dict]) -> int:
     )
 
 
+def _telos_prelude_frames(frames: list[dict], cut: int) -> list:
+    """dataset frames use short type names (goal); Trajectory coerces to FrameType."""
+    prelude_dicts = [f for f in frames[:cut] if f.get("type") != "end"]
+    return Trajectory(prelude_dicts).to_frames()
+
+
 def _telos_prompt(row: dict, _tokenizer) -> str:
     frames = json.loads(row["frames"])
-    cut = _telos_cut_index(frames) # find the index of the first model block
+    cut = _telos_cut_index(frames)
     if cut >= len(frames):
         return ""
-    prelude = [
-        Frame(type=FrameType(f["type"]), content=f["content"])
-        for f in frames[:cut] # render the prelude (the part of the conversation before the model block)
-        if f.get("type") != "end"
-    ]
-    return telos_render(prelude) # render the prelude as a string
+    return telos_render(_telos_prelude_frames(frames, cut))
 
 
 def _chatml_prompt(row: dict, tokenizer) -> str:
@@ -132,12 +133,8 @@ def _telos_check(row: dict, generated_text: str) -> tuple[bool, bool, Optional[s
     except Exception as e:
         return False, False, f"parse failure: {e}", []
 
-    prelude = frames[: _telos_cut_index(frames)]
-    full = [
-        Frame(type=FrameType(f["type"]), content=f["content"])
-        for f in prelude
-        if f.get("type") != "end"
-    ]
+    cut = _telos_cut_index(frames)
+    full = _telos_prelude_frames(frames, cut)
     full.extend(generated_frames)
 
     try:

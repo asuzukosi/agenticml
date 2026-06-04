@@ -91,7 +91,7 @@ telos eval-format-validity \
 # telos eval on a merged (fused) checkpoint; --model is the full checkpoint, no --adapter-id
 telos eval-format-validity \
   --format telos \
-  --model kosiasuzu/telos-llama-3.1-8b-lora-merged \
+  --model kosiasuzu/telos-llama3.1-8b-lora-merged \
   --adapter-mode merged \
   --dataset kosiasuzu/telos-agent-trajectory-dataset \
   --split eval \
@@ -112,7 +112,7 @@ telos eval-format-validity \
 # chatml eval on a merged checkpoint
 telos eval-format-validity \
   --format chatml \
-  --model kosiasuzu/chatml-llama-3.1-8b-lora-merged \
+  --model kosiasuzu/chatml-llama3.1-8b-lora-merged \
   --adapter-mode merged \
   --dataset kosiasuzu/telos-agent-trajectory-dataset \
   --split eval \
