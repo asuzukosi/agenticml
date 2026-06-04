@@ -1,0 +1,71 @@
+{
+  "model": "kosiasuzu/telos-llama3.1-8b-lora-merged",
+  "adapter": null,
+  "adapter_mode": "merged",
+  "dataset": "kosiasuzu/telos-agent-trajectory-dataset",
+  "split": "eval",
+  "format": "telos",
+  "split_size": 974,
+  "evaluable_size": 974,
+  "num_examples": 3,
+  "num_run": 3,
+  "sample_seed": 42,
+  "summary": {
+    "n": 3,
+    "parse_rate": 1.0,
+    "valid_rate": 0.0,
+    "by_domain": {
+      "vehicle": {
+        "n": 2,
+        "parsed": 2,
+        "valid": 0
+      },
+      "coding": {
+        "n": 1,
+        "parsed": 1,
+        "valid": 0
+      }
+    },
+    "top_failures": {
+      "validation: [unresolved_action] frame 3": 3
+    }
+  },
+  "results": [
+    {
+      "id": "veh_tacoma_vibration",
+      "domain": "vehicle",
+      "parsed_ok": true,
+      "structurally_valid": false,
+      "parse_error": null,
+      "validation_errors": [
+        "[unresolved_action] frame 3: 1 non-terminal action(s) without matching result(s) by end of trajectory"
+      ],
+      "num_generated_tokens": 33,
+      "generated_text_preview": "<|action|>{\"tool\":\"lookup_symptom\",\"vehicle_model\":\"2019 Toyota Tacoma\",\"symptom\":\"steering wheel vibration\",\"condition\":\"braking at highway speeds\"}\n<|end|>"
+    },
+    {
+      "id": "veh_brake_grind_018",
+      "domain": "vehicle",
+      "parsed_ok": true,
+      "structurally_valid": false,
+      "parse_error": null,
+      "validation_errors": [
+        "[unresolved_action] frame 3: 1 non-terminal action(s) without matching result(s) by end of trajectory"
+      ],
+      "num_generated_tokens": 33,
+      "generated_text_preview": "<|action|>{\"tool\":\"lookup_symptoms\",\"make\":\"Toyota\",\"model\":\"Camry\",\"year\":2019,\"symptom\":\"grinding noise low speed braking\"}\n<|end|>"
+    },
+    {
+      "id": "cod_log_traceback_001",
+      "domain": "coding",
+      "parsed_ok": true,
+      "structurally_valid": false,
+      "parse_error": null,
+      "validation_errors": [
+        "[unresolved_action] frame 3: 1 non-terminal action(s) without matching result(s) by end of trajectory"
+      ],
+      "num_generated_tokens": 9,
+      "generated_text_preview": "<|action|>{\"tool\":\"list_containers\"}\n<|end|>"
+    }
+  ]
+}

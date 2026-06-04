@@ -73,7 +73,7 @@ base = AutoModelForCausalLM.from_pretrained(
 model = PeftModel.from_pretrained(base, adapter_id)
 model.eval()
 
-# use tt + render/prompt as in the merged model card
+# use tt.encode(render(...)) and tt.decode(...) as in the merged model card (not tt.hf on wire text)
 ```
 
 **CLI eval (PEFT mode):**

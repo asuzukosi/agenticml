@@ -10,6 +10,10 @@ telos init-telos-embeddings \
   --base-model meta-llama/Llama-3.1-8B \
   --repo-id kosiasuzu/telos-agent-llama-3.1-8b-init
 
+# read-only check: reserved rows == mean of seed-word embeddings (no re-init)
+telos verify-telos-embeddings \
+  --model kosiasuzu/telos-agent-llama-3.1-8b-init
+
 
 # --- init chatml embeddings ---
 # mean-pool seed rows into chatml marker slots; uses instruct tokenizer vocab on base weights
@@ -78,7 +82,8 @@ telos train-chatml-lora \
 
 
 # --- format validity eval: telos ---
-# random sample of 100 eval examples by default (--sample-size 0 for full split)
+# default 100 eval rows (--num-examples -1 for all evaluable rows in the split)
+# uses TelosTokenizer encode/decode (reserved ids); re-run if you had old raw-AutoTokenizer telos metrics
 # generate telos completions and score parse/structural validity; peft = base + adapter
 telos eval-format-validity \
   --format telos \

@@ -83,7 +83,6 @@ from telos.tokenizer import TelosTokenizer
 model_id = "kosiasuzu/telos-llama3.1-8b-lora-merged"
 
 tt = TelosTokenizer.from_pretrained(model_id)
-tokenizer = tt.hf
 model = AutoModelForCausalLM.from_pretrained(
     model_id,
     torch_dtype=torch.bfloat16,
@@ -99,18 +98,23 @@ frames = [
 prelude = Trajectory(frames).to_frames()
 prompt = render(prelude)
 
-inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+# use TelosTokenizer.encode/decode — not tt.hf on wire text (see README gotcha)
+prompt_ids = tt.encode(prompt)
+device = next(model.parameters()).device
+inputs = torch.tensor([prompt_ids], device=device, dtype=torch.long)
 end_id = tt.end_id
+pad_id = tt.hf.pad_token_id or tt.hf.eos_token_id
 with torch.no_grad():
     out = model.generate(
-        **inputs,
+        inputs,
+        attention_mask=torch.ones_like(inputs),
         max_new_tokens=512,
         do_sample=False,
-        eos_token_id=[end_id, tokenizer.eos_token_id],
-        pad_token_id=tokenizer.eos_token_id,
+        eos_token_id=[end_id, tt.hf.eos_token_id],
+        pad_token_id=pad_id,
     )
 
-gen_text = tokenizer.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=False)
+gen_text = tt.decode(out[0][len(prompt_ids):].tolist())
 generated_frames = parse(gen_text, strict=False)
 print(generated_frames)
 ```

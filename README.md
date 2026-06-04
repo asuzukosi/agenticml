@@ -79,6 +79,7 @@ After `pip install -e .` (plus extras as needed), use the `telos` CLI or `python
 | `telos train-telos-lora` | `train` | Fine-tune Telos-format LoRA |
 | `telos train-chatml-lora` | `train` | Fine-tune ChatML LoRA |
 | `telos init-telos-embeddings` | `train` | Initialize Telos reserved-token embeddings |
+| `telos verify-telos-embeddings` | `train` | Verify Telos init checkpoint embedding rows |
 | `telos init-chatml-embeddings` | `train` | Initialize ChatML marker embeddings |
 | `telos eval-format-validity` | `eval` | Generate and score format validity |
 | `telos data-clean-push` | `data` | Validate, split, push trajectory dataset |
@@ -154,6 +155,16 @@ happens at the string level; the underlying tokenizer is unmodified.
 `TelosTokenizer.apply_trajectory_template` renders a `Trajectory` to
 wire text and optionally returns token ids (analogous to
 `PreTrainedTokenizer.apply_chat_template`).
+
+### Telos tokenizer gotcha (inference and eval)
+
+Telos wire strings use markers like `<|goal|>`, but **training and the model see reserved-slot token ids** (`<|reserved_special_token_0|>`, …). `TelosTokenizer` rewrites markers at encode time and restores them on decode; the underlying Hugging Face tokenizer is unchanged.
+
+- **Do:** `ids = tt.encode(render(frames))` (or `apply_trajectory_template(..., tokenize=True)`), then `model.generate` on `ids`; decode with `tt.decode(generated_ids)` before `parse()`.
+- **Do not:** `AutoTokenizer(rendered_wire)` or `tt.hf(rendered_wire)` — that BPE-tokenizes the marker *strings* and does not match training.
+- **Eval:** `telos eval-format-validity --format telos` uses `TelosTokenizer` automatically. ChatML eval uses `apply_chat_template` on the instruct tokenizer as usual.
+
+Any prior Telos format-validity numbers run with raw `AutoTokenizer` on wire text should be discarded and re-run after this fix.
  
 ## Example trajectory
  

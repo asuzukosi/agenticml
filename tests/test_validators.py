@@ -120,6 +120,26 @@ def test_trailing_non_terminal_without_result_is_invalid():
     assert any(v.rule == "unresolved_action" for v in vs)
 
 
+def test_trailing_non_terminal_ok_when_runtime_results_expected():
+    frames = [
+        goal("g"),
+        mission("m"),
+        action({"tool": "list_dir", "path": "/"}),
+    ]
+    assert is_valid(frames, allow_unresolved_actions_at_end=True)
+
+
+def test_belief_after_non_terminal_action_without_result_is_invalid():
+    frames = [
+        goal("g"),
+        mission("m"),
+        action({"tool": "list_dir", "path": "/"}),
+        belief("skipped result"),
+    ]
+    vs = validate(frames)
+    assert any(v.rule == "unresolved_action" for v in vs)
+
+
 def test_trailing_fail_without_result_is_valid():
     frames = [
         goal("g"),

@@ -28,10 +28,10 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--split", default="eval")
     p.add_argument("--output", required=True, type=Path)
     p.add_argument(
-        "--sample-size",
+        "--num-examples",
         type=int,
         default=100,
-        help="number of examples to evaluate (random sample; 0 = full split)",
+        help="number of eval rows to run (random sample; negative = all evaluable rows)",
     )
     p.add_argument(
         "--sample-seed",
@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> None:
         output_path=args.output,
         adapter_mode=args.adapter_mode,
         adapter_id=args.adapter_id,
-        sample_size=args.sample_size,
+        num_examples=args.num_examples,
         sample_seed=args.sample_seed,
         max_new_tokens=args.max_new_tokens,
     )

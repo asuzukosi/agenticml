@@ -66,4 +66,4 @@ RUNTIME_FRAMES: frozenset = frozenset(
     ft for ft, owner in TELOS_OWNERS.items() if owner == "runtime"
 )
 TERMINAL_TOOLS: frozenset = frozenset({"answer", "fail"})
-DEFAULT_BASE_MODEL: str = "meta-llama/Llama-3.1-8B"
+DEFAULT_BASE_MODEL: str = "kosiasuzu/telos-agent-llama-3.1-8b-init"

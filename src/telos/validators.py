@@ -117,7 +117,22 @@ class _ActionResultWalk:
                 message=f"{f.type.value} appears before any action",
             ))
 
-    def run(self) -> list[Violation]:
+    def _on_model_step(self, i: int, f: Frame) -> None:
+        if self.pending_non_terminal > 0 and f.type in (
+            FrameType.BELIEF,
+            FrameType.PLAN,
+            FrameType.THINK,
+        ):
+            self.violations.append(Violation(
+                rule="unresolved_action",
+                frame_index=self.first_pending_action_idx or i,
+                message=(
+                    "non-terminal action(s) not followed by <|result|> before "
+                    f"next {f.type.value}"
+                ),
+            ))
+
+    def run(self, *, allow_unresolved_actions_at_end: bool = False) -> list[Violation]:
         for i, f in enumerate(self.frames):
             self._set_model_block(f)
             if f.type is FrameType.ACTION:
@@ -126,7 +141,9 @@ class _ActionResultWalk:
                 self._on_result(i, f)
             elif f.type in (FrameType.FEEDBACK, FrameType.REWARD):
                 self._on_feedback_or_reward(i, f)
-        if self.pending_non_terminal > 0:
+            elif f.type in (FrameType.BELIEF, FrameType.PLAN, FrameType.THINK):
+                self._on_model_step(i, f)
+        if self.pending_non_terminal > 0 and not allow_unresolved_actions_at_end:
             self.violations.append(Violation(
                 rule="unresolved_action",
                 frame_index=self.first_pending_action_idx or (len(self.frames) - 1),
@@ -147,12 +164,34 @@ STRUCTURAL_RULES: tuple[StructuralRule, ...] = (
 )
 
 
-def validate(frames: list[Frame]) -> list[Violation]:
+def validate_for_model_generation(frames: list[Frame]) -> list[Violation]:
+    """validate prelude + model-generated suffix (format-validity eval).
+
+    wire training pattern: <|action|>{...}<|end|> then <|result|>{...} from runtime.
+    the model learns through <|end|>; results are not generated. trailing
+    non-terminal actions without a <|result|> frame in the list are allowed.
+    """
+    return validate(frames, allow_unresolved_actions_at_end=True)
+
+
+def validate(
+    frames: list[Frame],
+    *,
+    allow_unresolved_actions_at_end: bool = False,
+) -> list[Violation]:
     """check a trajectory against telos sequence rules.
 
-    non-terminal actions each need a matching <|result|> before more non-terminal
-    work or end of trajectory. terminal actions (answer / fail) do not require a
-    following result; an optional <|result|> immediately after them is allowed.
+    on the wire, <|end|> closes a model turn; <|result|> is runtime-owned and
+    usually appears in the next segment (see render() in frames.py). parsed
+    frame lists are action then result with no end frame between them.
+
+    non-terminal actions need matching <|result|> frame(s) before the next model
+    step (belief/plan/think/action) or trajectory end. terminal actions (answer /
+    fail) do not require a result.
+
+    allow_unresolved_actions_at_end: for eval on partial trajectories where the
+    model just emitted action<|end|> and runtime has not appended results yet.
+    use validate_for_model_generation() instead of passing the flag directly.
     """
     if not frames:
         return []
@@ -161,10 +200,20 @@ def validate(frames: list[Frame]) -> list[Violation]:
     for rule in STRUCTURAL_RULES:
         violations.extend(rule(frames))
 
-    violations.extend(_ActionResultWalk(frames).run())
+    violations.extend(
+        _ActionResultWalk(frames).run(
+            allow_unresolved_actions_at_end=allow_unresolved_actions_at_end,
+        )
+    )
     return violations
 
 
-def is_valid(frames: list[Frame]) -> bool:
+def is_valid(
+    frames: list[Frame],
+    *,
+    allow_unresolved_actions_at_end: bool = False,
+) -> bool:
     """convenience: true iff validate returns no violations. used for testing."""
-    return not validate(frames)
+    return not validate(
+        frames, allow_unresolved_actions_at_end=allow_unresolved_actions_at_end
+    )
