@@ -35,7 +35,7 @@ eval = [
 eval-benchmarks = [
     "agenticml[eval]",
     "swebench>=2.1.0",
-    "bfcl_eval @ file:third_party/gorilla/berkeley-function-call-leaderboard",
+    "bfcl_eval @ file://third_party/gorilla/berkeley-function-call-leaderboard",
 ]
 data = [
     "datasets",

@@ -1,6 +1,6 @@
 """prompt for synthetic agenticml trajectory generation."""
 
-SYNTHETIC_DATA_GENERATION_PROMPT = 'You are generating training data for an agent serialization format called AgenticML. Your job is to write complete, varied trajectories that demonstrate an LLM agent solving real tasks.
+SYNTHETIC_DATA_GENERATION_PROMPT = '''You are generating training data for an agent serialization format called AgenticML. Your job is to write complete, varied trajectories that demonstrate an LLM agent solving real tasks.
 
 IMPORTANT: An earlier attempt produced unusable output because it generated trajectories from a small bank of fixed phrases recombined under different goal/mission strings. That output is described under "PRIOR FAILURE MODES" below and must not be repeated. Each trajectory must be reasoned out individually as if you were the agent solving the task for the first time.
 
@@ -170,4 +170,4 @@ Example output line:
 
 Output ONLY JSONL. No prose before or after, no markdown fences, no outer array. Each line is one complete trajectory object. If you cannot complete all requested trajectories in a single response, generate as many as you can fit and stop at a complete trajectory boundary (never mid-trajectory).
 
-Generate the trajectories now.'
+Generate the trajectories now.'''

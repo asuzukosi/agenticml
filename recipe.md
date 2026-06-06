@@ -6,11 +6,35 @@ All inference and eval commands load **merged** Hugging Face checkpoints only (`
 
 Copy-paste commands also live in [`command.txt`](command.txt).
 
-**Convention:** run the paired `pytest` line(s) in each phase **before** the `agenticml` / `torchrun` commands below. Post-step checks (`verify-embeddings`, hub loads) run after the command.
+**Convention:** run the paired `pytest` line(s) in each step **before** the `agenticml` commands below. Post-step checks (`verify-embeddings`, hub loads) run after the command.
 
 ---
 
-## prerequisites
+## replication runbook
+
+Use this section to reproduce the full pipeline on a fresh machine (e.g. RunPod L40S). One GPU is enough — use `agenticml train-on-format` directly, not `torchrun --nproc_per_node=2`.
+
+### 0. clone and setup
+
+```bash
+git clone --recurse-submodules https://github.com/asuzukosi/agenticml.git
+cd agenticml
+
+# if you already cloned without submodules:
+# git submodule update --init --recursive
+
+python -m venv venv && source venv/bin/activate
+pip install --upgrade pip
+
+# install a cuda-matched torch wheel from https://pytorch.org/ first if needed, then:
+pip install -e ".[dev,train,eval,data]"
+
+hf auth login          # needs meta-llama access for Llama 3.1
+wandb login            # optional; training logs to wandb when configured
+
+pytest tests/test_frames.py tests/test_bridge.py tests/test_sdk.py -q
+python -c "import torch; print('cuda:', torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+```
 
 | Requirement | Notes |
 |-------------|--------|
@@ -21,30 +45,70 @@ Copy-paste commands also live in [`command.txt`](command.txt).
 | OpenRouter (optional) | Synthetic data generation only (`OPENROUTER_API_KEY` in `.env`) |
 | Docker (SWE only) | For `--suite swe` grading |
 
-**Install workspace:**
+---
+
+### 1. trajectory dataset
+
+**Default — use the published Hub dataset** (fastest):
 
 ```bash
-pip install -e ".[dev,train,eval,data,data-gen]"
-# install a cuda-matched torch wheel from https://pytorch.org/ if needed
-wandb login   # optional; training logs to wandb when configured
+python -c "
+from datasets import load_dataset
+ds = load_dataset('kosiasuzu/agenticml-agent-trajectory-dataset', split='train')
+row = ds[0]
+assert 'frames' in row and 'messages' in row
+print('ok', len(ds), 'rows', row['id'])
+"
 ```
 
-**Smoke — environment OK:**
+Rows include `frames` (agenticml) and `messages` (chatml) after `data-clean-push`.
+
+**If you only have local jsonl** (generated but not pushed):
 
 ```bash
-pytest tests/test_frames.py tests/test_bridge.py tests/test_sdk.py -q
-python -c "import torch; print('cuda:', torch.cuda.is_available())"
+pytest tests/test_bridge.py tests/evaluation/benchmarks/test_aggregate_results.py -q
+
+agenticml data-clean-push \
+  --input data/generated.jsonl \
+  --repo-id kosiasuzu/agenticml-agent-trajectory-dataset
+```
+
+Then set `--dataset` in training to that repo id.
+
+**Optional — generate synthetic trajectories** (requires `OPENROUTER_API_KEY` in `.env`):
+
+```bash
+pytest tests/test_bridge.py tests/evaluation/benchmarks/test_aggregate_results.py -q
+
+agenticml data-synthetic-gen \
+  --target 500 \
+  --workers 4 \
+  --out data/generated.jsonl
+
+agenticml data-clean-push \
+  --input data/generated.jsonl \
+  --repo-id kosiasuzu/agenticml-agent-trajectory-dataset
 ```
 
 ---
 
-## phase 1: init checkpoints (from meta llama base)
+### 2. init checkpoints
 
-Two init bases share `meta-llama/Llama-3.1-8B` weights but differ in tokenizer / embedding rows.
+**Skip init** if `kosiasuzu/agenticml-agent-llama-3.1-8b-init` and `kosiasuzu/chatml-agent-llama-3.1-8b-init` are already on the Hub. Verify only:
 
-### 1a. agenticml init
+```bash
+agenticml verify-embeddings --format agenticml \
+  --model kosiasuzu/agenticml-agent-llama-3.1-8b-init
 
-Maps AgenticML frame markers (`<|goal|>` … `<|reward|>`) onto Llama reserved slots via mean-pooled seed embeddings.
+agenticml verify-embeddings --format chatml \
+  --model kosiasuzu/chatml-agent-llama-3.1-8b-init
+```
+
+Re-run init only if you want fresh weights under your own Hub account.
+
+#### 2a. agenticml init
+
+Maps AgenticML frame markers onto Llama reserved slots via mean-pooled seed embeddings.
 
 ```bash
 pytest tests/test_agentic_template.py -q
@@ -52,16 +116,12 @@ pytest tests/test_agentic_template.py -q
 agenticml init-embeddings --format agenticml \
   --base-model meta-llama/Llama-3.1-8B \
   --repo-id kosiasuzu/agenticml-agent-llama-3.1-8b-init
-```
 
-**Check after init:**
-
-```bash
 agenticml verify-embeddings --format agenticml \
   --model kosiasuzu/agenticml-agent-llama-3.1-8b-init
 ```
 
-### 1b. chatml init
+#### 2b. chatml init
 
 Same base weights; instruct tokenizer vocab; ChatML special-token rows initialized.
 
@@ -72,102 +132,46 @@ agenticml init-embeddings --format chatml \
   --base-model meta-llama/Llama-3.1-8B \
   --instruct-tokenizer meta-llama/Llama-3.1-8B-Instruct \
   --repo-id kosiasuzu/chatml-agent-llama-3.1-8b-init
-```
 
-**Check after init:**
-
-```bash
 agenticml verify-embeddings --format chatml \
   --model kosiasuzu/chatml-agent-llama-3.1-8b-init
 ```
 
 ---
 
-## phase 2: trajectory dataset
-
-### option A — use published dataset (fastest)
-
-```bash
-# rows include `frames` (agenticml) and `messages` (chatml) after clean-and-push
-# kosiasuzu/agenticml-agent-trajectory-dataset
-```
-
-### option B — generate + publish locally
-
-The clean step validates frames, fills missing ChatML `messages` via [`bridge.frames_to_messages`](src/agenticml/bridge.py), dedupes by mission, stratified train/eval split, and pushes to the Hub.
-
-```bash
-pytest tests/test_bridge.py tests/evaluation/benchmarks/test_aggregate_results.py -q
-
-# requires OPENROUTER_API_KEY
-agenticml data-synthetic-gen \
-  --target 500 \
-  --workers 4 \
-  --out data/generated_smoke.jsonl
-
-agenticml data-clean-push \
-  --input data/generated_smoke.jsonl \
-  --repo-id kosiasuzu/agenticml-agent-trajectory-dataset
-```
-
-**Check after push:**
-
-```bash
-python -c "
-from datasets import load_dataset
-ds = load_dataset('kosiasuzu/agenticml-agent-trajectory-dataset', split='train')
-row = ds[0]
-assert 'frames' in row and 'messages' in row
-print('ok', row['id'], row['domain'])
-"
-```
-
----
-
-## phase 3: fine-tune both formats (merged hub push only)
+### 3. fine-tune both formats (merged hub push only)
 
 Both runs use the **same dataset**; AgenticML trains on `frames`, ChatML on `messages`. LoRA hub push: adapters to `<hub-repo-id>-adapter`, merged weights to `--hub-repo-id`.
 
-### 3a. agenticml lora → merged
+Run a smoke pass first (~minutes), then the full run.
 
 ```bash
 pytest tests/training/ -q
 
-# single gpu smoke
+# smoke
 agenticml train-on-format --format agenticml \
   --model-id kosiasuzu/agenticml-agent-llama-3.1-8b-init \
   --dataset kosiasuzu/agenticml-agent-trajectory-dataset \
   --output-dir outputs/agenticml-lora-smoke \
   --run-name agenticml-lora-smoke \
-  --limit-train 32 \
-  --limit-eval 8
+  --limit-train 32 --limit-eval 8
 
-# full run (multi-gpu)
-torchrun --standalone --nproc_per_node=2 -m agenticml.cli.commands.train_on_format --format agenticml \
-  --model-id kosiasuzu/agenticml-agent-llama-3.1-8b-init \
-  --dataset kosiasuzu/agenticml-agent-trajectory-dataset \
-  --output-dir outputs/agenticml-lora-full \
-  --run-name agenticml-lora-full \
-  --hub-repo-id kosiasuzu/agenticml-llama3.1-8b-lora-merged
-```
-
-### 3b. chatml lora → merged
-
-ChatML trains on the dataset `messages` column via `tokenizer.apply_chat_template`.
-Use the ChatML init checkpoint for `--model-id` (weights + instruct tokenizer from
-`init-embeddings --format chatml`). Hub push publishes adapters to `<hub-repo-id>-adapter`
-and merged weights + tokenizer to `--hub-repo-id`.
-
-```bash
 agenticml train-on-format --format chatml \
   --model-id kosiasuzu/chatml-agent-llama-3.1-8b-init \
   --dataset kosiasuzu/agenticml-agent-trajectory-dataset \
   --output-dir outputs/chatml-lora-smoke \
   --run-name chatml-lora-smoke \
-  --limit-train 32 \
-  --limit-eval 8
+  --limit-train 32 --limit-eval 8
 
-torchrun --standalone --nproc_per_node=2 -m agenticml.cli.commands.train_on_format --format chatml \
+# full training + hub push
+agenticml train-on-format --format agenticml \
+  --model-id kosiasuzu/agenticml-agent-llama-3.1-8b-init \
+  --dataset kosiasuzu/agenticml-agent-trajectory-dataset \
+  --output-dir outputs/agenticml-lora-full \
+  --run-name agenticml-lora-full \
+  --hub-repo-id kosiasuzu/agenticml-llama3.1-8b-lora-merged
+
+agenticml train-on-format --format chatml \
   --model-id kosiasuzu/chatml-agent-llama-3.1-8b-init \
   --dataset kosiasuzu/agenticml-agent-trajectory-dataset \
   --output-dir outputs/chatml-lora-full \
@@ -175,7 +179,29 @@ torchrun --standalone --nproc_per_node=2 -m agenticml.cli.commands.train_on_form
   --hub-repo-id kosiasuzu/chatml-llama3.1-8b-lora-merged
 ```
 
-**Smoke after training:** confirm `outputs/*/config.json` exists and optional hub repo loads:
+On a single GPU (e.g. L40S), omit `torchrun`; default LoRA settings (`batch=1`, `grad_accum=32`) target this setup.
+
+**Multi-GPU alternative** (2+ GPUs):
+
+```bash
+torchrun --standalone --nproc_per_node=2 -m agenticml.cli.commands.train_on_format \
+  --format agenticml \
+  --model-id kosiasuzu/agenticml-agent-llama-3.1-8b-init \
+  --dataset kosiasuzu/agenticml-agent-trajectory-dataset \
+  --output-dir outputs/agenticml-lora-full \
+  --run-name agenticml-lora-full \
+  --hub-repo-id kosiasuzu/agenticml-llama3.1-8b-lora-merged
+
+torchrun --standalone --nproc_per_node=2 -m agenticml.cli.commands.train_on_format \
+  --format chatml \
+  --model-id kosiasuzu/chatml-agent-llama-3.1-8b-init \
+  --dataset kosiasuzu/agenticml-agent-trajectory-dataset \
+  --output-dir outputs/chatml-lora-full \
+  --run-name chatml-lora-full \
+  --hub-repo-id kosiasuzu/chatml-llama3.1-8b-lora-merged
+```
+
+**Check after training:**
 
 ```bash
 python -c "
@@ -187,22 +213,23 @@ print('agenticml merged ok', tok.convert_tokens_to_ids('<|reserved_special_token
 
 ---
 
-## phase 4: eval dependencies
+### 4. eval dependencies
 
 See [`docs/eval_dependencies.md`](docs/eval_dependencies.md) for BFCL / ToolBench / SWE layout.
 
 ```bash
-pytest tests/evaluation/benchmarks/ -q --ignore=tests/evaluation/benchmarks/swe/test_smoke_pipeline.py
+pytest tests/evaluation/benchmarks/ -q \
+  --ignore=tests/evaluation/benchmarks/swe/test_smoke_pipeline.py
 
-pip install -e ".[eval-benchmarks]"
 git submodule update --init --recursive
+pip install -e ".[eval-benchmarks]"
 ```
 
 ToolBench cached data (one-time):
 
 ```bash
 cd third_party/ToolBench
-huggingface-cli download nullwwg/toolbench-data data.zip --local-dir .
+hf download nullwwg/toolbench-data data.zip --local-dir .
 unzip -o data.zip
 cd ../..
 ```
@@ -213,13 +240,15 @@ cd ../..
 agenticml eval-run-all --dry-run   # lists 8 matrix cells, no gpu
 ```
 
+SWE also needs Docker running on the host.
+
 ---
 
-## phase 5: per-suite smoke (catch errors before long runs)
+### 5. per-suite smoke (catch errors before long runs)
 
 Use **merged** model ids. Run these in order; each step should finish in minutes (except first SWE docker pull).
 
-### format validity (parse + structure)
+#### format validity (parse + structure)
 
 ```bash
 agenticml eval-benchmarks --suite format_validity --format agenticml \
@@ -231,7 +260,7 @@ agenticml eval-benchmarks --suite format_validity --format chatml \
   --num-examples 5 --output-dir results/benchmarks/format_validity
 ```
 
-### toolbench (cached tools, no live api)
+#### toolbench (cached tools, no live api)
 
 ```bash
 agenticml eval-benchmarks --suite toolbench --format agenticml \
@@ -239,7 +268,7 @@ agenticml eval-benchmarks --suite toolbench --format agenticml \
   --num-examples 1 --output-dir results/benchmarks/toolbench
 ```
 
-### bfcl (subset)
+#### bfcl (subset)
 
 ```bash
 agenticml eval-benchmarks --suite bfcl --format agenticml \
@@ -247,7 +276,7 @@ agenticml eval-benchmarks --suite bfcl --format agenticml \
   --num-examples 3 --no-score --output-dir results/benchmarks/bfcl
 ```
 
-### swe (docker; inference only first)
+#### swe (docker; inference only first)
 
 ```bash
 # pre-pull images — can take 10–30+ min first time; see docs/eval_swe_bench.md
@@ -266,7 +295,7 @@ SWE_VERBOSE=1 agenticml eval-benchmarks --suite swe --format agenticml \
 
 ---
 
-## phase 6: full benchmark matrix + publish
+### 6. full benchmark matrix + publish
 
 ```bash
 # inference-only smoke across suites (no swe docker grade)
@@ -285,7 +314,7 @@ agenticml eval-aggregate-results
 
 Outputs: `results/benchmarks/<suite>/<format>/summary.json`. Aggregated markdown: [`docs/benchmark_results.md`](docs/benchmark_results.md).
 
-### publish hub model cards
+#### publish hub model cards
 
 Edit [`model_cards/`](model_cards/) locally, then push each file as the repo `README.md`:
 
@@ -298,6 +327,19 @@ hf upload kosiasuzu/chatml-llama3.1-8b-lora-merged \
   model_cards/chatml-llama3.1-8b-lora-merged.md README.md \
   --commit-message "update model card"
 ```
+
+---
+
+## practical notes
+
+| Topic | Guidance |
+|--------|----------|
+| **Repo** | Clone `asuzukosi/agenticml` for code; Hub ids in commands point at `kosiasuzu/...` unless you re-init/train to your account |
+| **pip** | Run `pip install --upgrade pip` before editable install; older pip (24.x) fails on optional `file://` deps in metadata |
+| **Submodules** | Required for BFCL / ToolBench / SWE eval, not for train-only |
+| **Disk** | ToolBench `data.zip` is large; ensure enough volume |
+| **SWE** | Needs Docker + first image pull can take 30+ min |
+| **Time order** | Setup → dataset (or verify Hub) → init (or verify) → train agenticml → train chatml → eval setup → smoke evals → full matrix |
 
 ---
 
