@@ -201,11 +201,14 @@ telos eval-benchmarks \
   --num-examples 3 \
   --output-dir results/benchmarks/swe
 
-telos eval-benchmarks \
+# chatml swe smoke (match telos: 2 examples, iteration cap)
+SWE_VERBOSE=1 telos eval-benchmarks \
   --suite swe \
   --format chatml \
   --model kosiasuzu/chatml-llama3.1-8b-lora-merged \
-  --num-examples 3 \
+  --num-examples 2 \
+  --max-iterations 50 \
+  --sample-seed 42 \
   --output-dir results/benchmarks/swe
 
 
@@ -236,3 +239,8 @@ telos eval-run-all --continue-on-error
 telos eval-run-all \
   --score-only \
   --suites bfcl swe
+
+# aggregate all summary.json envelopes -> docs/benchmark_results.md
+telos eval-aggregate-results
+# optional paths:
+# telos eval-aggregate-results --results-dir results/benchmarks --output docs/benchmark_results.md --json results/benchmarks/aggregate.json

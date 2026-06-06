@@ -170,9 +170,22 @@ torchrun --standalone --nproc_per_node=2 -m telos.cli.commands.train_telos_lora 
 
 ## Evaluation
 
-- **Split:** `eval` on `kosiasuzu/telos-agent-trajectory-dataset`
-- **Metrics:** Telos parse rate, structural validity (`telos eval-benchmarks --suite format_validity --format telos`)
-- **Results:** TBD — fill after eval run
+Upstream benchmark matrix (subset runs, seed 42). Full table: [`docs/benchmark_results.md`](../docs/benchmark_results.md). Regenerate: `telos eval-aggregate-results`.
+
+| Suite | n | Primary | Secondary | avg_tokens | avg_wall_sec |
+|-------|---|---------|-----------|------------|--------------|
+| format_validity | 3 | valid 100% | parse 100% | 139 | 31s |
+| bfcl | 5 | accuracy 60% | avg_retry 8.8 | 36,570 | 281s |
+| toolbench | 2 | pass 0% | avg_steps 12 | 30,063 | 736s |
+| swe (lite) | 2 | resolved 0% | avg_iter 3.5 | 10,884 | 221s |
+
+Paired ChatML baseline on the same suites: see [`chatml-llama3.1-8b-lora-merged.md`](chatml-llama3.1-8b-lora-merged.md).
+
+```bash
+telos eval-benchmarks --suite <bfcl|toolbench|swe|format_validity> --format telos --model kosiasuzu/telos-llama3.1-8b-lora-merged
+telos eval-run-all --dry-run
+telos eval-aggregate-results
+```
 
 ## Technical Specifications
 

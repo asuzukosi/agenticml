@@ -189,27 +189,22 @@ Fill from your W&B / cluster logs (GPU type, world size, wall-clock, peak VRAM).
 
 ### Results
 
-| Metric | Value |
-|--------|--------|
-| Examples evaluated | TBD |
-| Parse rate | TBD |
-| Structural valid rate | TBD |
+Upstream benchmark matrix (subset runs, seed 42). Full table: [`docs/benchmark_results.md`](../docs/benchmark_results.md). Regenerate: `telos eval-aggregate-results`.
 
-Run:
+| Suite | n | Primary | Secondary | avg_tokens | avg_wall_sec |
+|-------|---|---------|-----------|------------|--------------|
+| bfcl | 5 | accuracy 60% | avg_retry 1.6 | 20,139 | 192s |
+| toolbench | 2 | pass 0% | avg_steps 12 | 40,350 | 848s |
+| format_validity | — | not run | — | — | — |
+| swe (lite) | — | not run | — | — | — |
+
+Paired Telos model on the same suites: [`telos-llama3.1-8b-lora-merged.md`](telos-llama3.1-8b-lora-merged.md).
 
 ```bash
-telos eval-benchmarks --suite format_validity \
-  --format chatml \
-  --model kosiasuzu/chatml-llama3.1-8b-lora-merged \
-  --adapter-mode merged \
-  --dataset kosiasuzu/telos-agent-trajectory-dataset \
-  --split eval \
-  --output results/chatml_format_validity_merged.json
+telos eval-benchmarks --suite <bfcl|toolbench|swe|format_validity> --format chatml --model kosiasuzu/chatml-llama3.1-8b-lora-merged
+telos eval-run-all --dry-run
+telos eval-aggregate-results
 ```
-
-#### Summary
-
-Fill from `summary` in the eval JSON after your run.
 
 ## Technical Specifications
 
