@@ -112,7 +112,7 @@ def ensure_bfcl_scoring() -> None:
         )
         raise ImportError(
             f"bfcl scoring import failed ({e}). try:\n{hint}\n"
-            "see docs/eval_dependencies.md for full eval setup"
+            "see recipe.md §4 for full eval setup"
         ) from e
 
 

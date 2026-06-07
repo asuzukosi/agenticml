@@ -1,4 +1,4 @@
-# end-to-end recipe: base llama → merged models → evaluation
+# End-to-End Recipe: Base Llama → Merged Models → Evaluation
 
 This walkthrough rebuilds the AgenticML study from scratch: two **merged** checkpoints (AgenticML frames vs ChatML messages) trained on the **same** trajectory dataset, then scored on the same benchmark matrix.
 
@@ -10,11 +10,11 @@ Copy-paste commands also live in [`command.txt`](command.txt).
 
 ---
 
-## replication runbook
+## Replication Runbook
 
 Use this section to reproduce the full pipeline on a fresh machine (e.g. RunPod L40S). One GPU is enough — use `agenticml train-on-format` directly, not `torchrun --nproc_per_node=2`.
 
-### 0. clone and setup
+### 0. Clone and Setup
 
 ```bash
 git clone --recurse-submodules https://github.com/asuzukosi/agenticml.git
@@ -48,7 +48,7 @@ python -c "import torch; print('cuda:', torch.cuda.is_available(), torch.cuda.ge
 
 ---
 
-### 1. trajectory dataset
+### 1. Trajectory Dataset
 
 **Default — use the published Hub dataset** (fastest):
 
@@ -93,7 +93,7 @@ agenticml data-clean-push \
 
 ---
 
-### 2. init checkpoints
+### 2. Init Checkpoints
 
 **Skip init** if `kosiasuzu/agenticml-agent-llama-3.1-8b-init` and `kosiasuzu/chatml-agent-llama-3.1-8b-init` are already on the Hub. Verify only:
 
@@ -107,7 +107,7 @@ agenticml verify-embeddings --format chatml \
 
 Re-run init only if you want fresh weights under your own Hub account.
 
-#### 2a. agenticml init
+#### 2a. AgenticML Init
 
 Maps AgenticML frame markers onto Llama reserved slots via mean-pooled seed embeddings.
 
@@ -122,7 +122,7 @@ agenticml verify-embeddings --format agenticml \
   --model kosiasuzu/agenticml-agent-llama-3.1-8b-init
 ```
 
-#### 2b. chatml init
+#### 2b. ChatML Init
 
 Same base weights; instruct tokenizer vocab; ChatML special-token rows initialized.
 
@@ -140,7 +140,7 @@ agenticml verify-embeddings --format chatml \
 
 ---
 
-### 3. fine-tune both formats (merged hub push only)
+### 3. Fine-Tune Both Formats (Merged Hub Push Only)
 
 Both runs use the **same dataset**; AgenticML trains on `frames`, ChatML on `messages`. LoRA hub push: adapters to `<hub-repo-id>-adapter`, merged weights to `--hub-repo-id`.
 
@@ -214,9 +214,11 @@ print('agenticml merged ok', tok.convert_tokens_to_ids('<|reserved_special_token
 
 ---
 
-### 4. eval dependencies
+### 4. Eval Dependencies
 
-See [`docs/eval_dependencies.md`](docs/eval_dependencies.md) for BFCL / ToolBench / SWE layout.
+Benchmark suites: **BFCL**, **ToolBench** (cached tool results), **SWE-bench-Lite** (`swebench` grader), plus **format validity** on our models.
+
+#### Python Packages
 
 ```bash
 pytest tests/evaluation/benchmarks/ -q \
@@ -233,7 +235,34 @@ pip install swebench   # optional; skip on hosts without Docker (no SWE grading)
 # if toolbench fails with ModuleNotFoundError: termcolor, re-run pip install -e ".[eval]"
 ```
 
-ToolBench cached data (one-time, ~2 GB):
+| extra | packages |
+|-------|----------|
+| `eval` | torch, datasets, tqdm, termcolor (toolbench upstream) |
+| `eval-benchmarks` (metadata) | `agenticml[eval]`, [swebench](https://github.com/princeton-nlp/SWE-bench), editable `bfcl_eval` — install bfcl via staged command above |
+
+Verify:
+
+```bash
+python -c "import bfcl_eval; print('bfcl ok')"
+agenticml eval-run-all --dry-run   # lists matrix cells, no gpu
+```
+
+Scoring imports `bfcl_eval.eval_checker.eval_runner`, which loads gorilla’s full dependency set. `.[eval]` alone is not enough for BFCL.
+
+#### third_party submodules
+
+| path | upstream |
+|------|----------|
+| `third_party/gorilla` | https://github.com/ShishirPatil/gorilla — BFCL scoring and ChatML eval path |
+| `third_party/SWE-bench` | https://github.com/princeton-nlp/SWE-bench — datasets and `run_evaluation` grader |
+| `third_party/mini-swe-agent` | https://github.com/SWE-agent/mini-swe-agent — agent loop for SWE-bench runs |
+| `third_party/ToolBench` | https://github.com/OpenBMB/ToolBench — upstream tool env + inference |
+
+Benchmark code: `src/agenticml/evaluation/benchmarks/` with shared `BenchmarkSuite` interface. Tests mirror under `tests/evaluation/benchmarks/`.
+
+#### ToolBench Data (~2 GB)
+
+Eval needs the OpenBMB **on-disk tree** under `data/` (`test_instruction`, `test_query_ids`, `toolenv`, `tool_response_cache`). Not a generic HF parquet dataset.
 
 ```bash
 cd third_party/ToolBench
@@ -252,31 +281,258 @@ ls data/test_instruction/G1_instruction.json
 ls data/toolenv/tools | head
 ```
 
-**Own mirror (optional):** if you already have `data.zip` locally, upload once and download on fresh pods:
+| source | status |
+|--------|--------|
+| [`nullwwg/toolbench-data`](https://huggingface.co/datasets/nullwwg/toolbench-data) | community mirror of OpenBMB `data.zip` (preferred) |
+| OpenBMB Google Drive / Tsinghua Cloud | often dead (404) |
+| `Maurus/ToolBench` on HF | wrong format (flat table; no `toolenv` / cache tree) |
+
+**Own mirror (optional):**
 
 ```bash
 hf upload kosiasuzu/toolbench-data data.zip data.zip --repo-type dataset
 hf download kosiasuzu/toolbench-data data.zip --repo-type dataset --local-dir third_party/ToolBench
 ```
 
-Override data root with `export TOOLBENCH_DATA=/path/to/ToolBench` when unzipped elsewhere.
+Set `export TOOLBENCH_DATA=/path/to/ToolBench` when unzipped elsewhere. ToolBench eval uses pinned cache artifacts only (no live RapidAPI in the default setup).
 
-**Check after setup:**
+#### Suite Reference
+
+**Matrix runner:**
 
 ```bash
-python -c "import bfcl_eval; print('bfcl ok')"
-agenticml eval-run-all --dry-run   # lists 8 matrix cells, no gpu
+agenticml eval-run-all --dry-run
+agenticml eval-run-all --num-examples 5
+agenticml eval-aggregate-results   # writes results/benchmarks/aggregate_table.md
 ```
+
+Default models: `kosiasuzu/agenticml-llama3.1-8b-lora-merged`, `kosiasuzu/chatml-llama3.1-8b-lora-merged`.
+
+**BFCL** — subset IDs in `src/agenticml/evaluation/benchmarks/bfcl/subset.py` (45 cases, seed 42; excludes irrelevance; long multi-turn cases swapped for faster 2–3 turn examples):
+
+```bash
+agenticml eval-benchmarks --suite bfcl --format agenticml --model <hf_id> --num-examples 5
+agenticml eval-benchmarks --suite bfcl --format chatml --model <hf_id> --num-examples 5
+```
+
+Writes gorilla result files under `results/benchmarks/bfcl/`, scores via upstream `evaluate_task`, envelope at `results/benchmarks/bfcl/<format>/summary.json`. Re-score: `--score-only`.
+
+**Format validity** — always uses `kosiasuzu/agenticml-agent-trajectory-dataset` / `eval`:
+
+```bash
+agenticml eval-benchmarks --suite format_validity --format agenticml --model <hf_id> --num-examples 100
+```
+
+**ToolBench** — 10 pinned G1_instruction query IDs in `toolbench/subset.py`; cached env in `toolbench/cache.py`:
+
+```bash
+agenticml eval-benchmarks --suite toolbench --format agenticml --model <hf_id> --num-examples 3
+```
+
+Structural scoring in `toolbench/score.py`. Optional full GPT judge: `OPENAI_API_KEY` + `TOOLEVAL_GPT=1`.
+
+**SWE-bench-Lite** — 30 instances in `swe/subset.py`; needs Docker. Full ops below.
 
 SWE also needs Docker running on the host.
 
+#### SWE-bench-Lite Evaluation
+
+**SWE-bench-Lite** runs through [mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent) and grades with upstream [swebench](https://github.com/princeton-nlp/SWE-bench) `run_evaluation`. AgenticML and ChatML each use a **merged** checkpoint with format-specific backends (`AgenticMLBackend` / `ChatMLBackend`); the Docker agent loop and grader stay upstream.
+
+**Subset:** Pinned instance IDs live in `SUBSET_IDS` in `src/agenticml/evaluation/benchmarks/swe/subset.py`: **30** tasks sampled with seed 42 from `princeton-nlp/SWE-Bench_Lite` / `test` (300 total). Loader: `agenticml.evaluation.benchmarks.swe.subset` (`load_subset_ids`, `load_subset`, `load_entries`).
+
+```python
+from agenticml.evaluation.benchmarks.swe.subset import load_subset
+
+subset = load_subset()
+print(subset.instance_ids[0], subset.entries[0]["repo"])
+```
+
+**Live progress** — per-step action logs (bash command + truncated output):
+
+```bash
+SWE_VERBOSE=1 agenticml eval-benchmarks --suite swe --format agenticml --model <model> --num-examples 1 --no-score
+```
+
+Other signals while a run is in flight:
+
+- **tqdm** postfix shows the current `instance_id`
+- **mini-swe** Docker logs: `DEBUG:minisweagent.environment` when containers start
+- **GPU:** `watch -n1 nvidia-smi` — generation should show util spikes
+- **Container shell:** `docker exec -it <minisweagent-name> bash` (repo at `/testbed`)
+
+Full trajectory lands in per-instance JSON under `results/benchmarks/swe/<model_slug>/` after each task completes.
+
+**GPU:** SWE inference runs the **8B model in a multi-turn loop** (up to 250 steps). It effectively requires a working GPU.
+
+If you see `CUDA initialization: The NVIDIA driver on your system is too old`, PyTorch falls back to CPU and a single step can take hours. Verify before eval:
+
+```bash
+python -c "import torch; print('cuda:', torch.cuda.is_available(), 'torch cuda:', torch.version.cuda)"
+nvidia-smi
+```
+
+Fix by aligning **driver** and **PyTorch CUDA build** (reinstall torch for your driver, or update the NVIDIA driver). A 4060 Ti with ~16 GB is enough; CPU-only smoke is not practical.
+
+| Component | Path / Package |
+|-----------|----------------|
+| SWE-bench grader | `swebench` (pyproject extra) + `third_party/SWE-bench` submodule |
+| Agent loop | `third_party/mini-swe-agent` submodule |
+| Dataset | Hugging Face `princeton-nlp/SWE-Bench_Lite` (cached on first load) |
+
+**Docker:**
+
+- Eval **requires Docker** (or Singularity on HPC — see mini-swe-agent docs).
+- The user running `agenticml` must access Docker **without sudo** (`docker ps` works in the same shell).
+- `docker run` **exit 126** — permission denied on `/var/run/docker.sock` (`sudo usermod -aG docker $USER`, re-login).
+- `docker run` **exit 125** + `containerd.sock: connection refused` — **containerd is down**. Fix before eval:
+
+```bash
+sudo journalctl -u containerd -n 30 --no-pager
+sudo systemctl stop docker containerd
+sudo rm -f /run/containerd/containerd.sock
+sudo containerd config default | sudo tee /etc/containerd/config.toml
+sudo systemctl start containerd && sudo systemctl start docker
+sudo systemctl status containerd   # must be active (running)
+```
+
+- **Pre-pull instance images** before `agenticml eval-benchmarks --suite swe`. First pull can take 10–30+ minutes per image; `docker run` during eval only waits ~600s.
+
+```bash
+python -c "
+from agenticml.evaluation.benchmarks.swe.env import pull_instance_image
+from agenticml.evaluation.benchmarks.swe.subset import load_entries
+for e in load_entries(2, seed=42):
+    print('pulling', e['instance_id'])
+    pull_instance_image(e)
+"
+```
+
+- Disk: SWE eval images are large (~tens of GB across many instances).
+
+**mini-swe-agent (reference):**
+
+```bash
+cd third_party/mini-swe-agent
+pip install -e .
+mini-extra swebench \
+  --subset lite \
+  --split test \
+  --model <provider/model> \
+  --filter 'django__django-11099|sympy__sympy-12454' \
+  -w 1 \
+  -o /tmp/swe-out
+```
+
+Single-instance debug:
+
+```bash
+mini-extra swebench-single --subset lite --split test -i sympy__sympy-12454 --model <model>
+```
+
+Docs: `third_party/mini-swe-agent/docs/usage/swebench.md`
+
+**Grading (reference):** After predictions exist as `preds.json` / `preds.jsonl`:
+
+```bash
+python -m swebench.harness.run_evaluation \
+  --dataset_name princeton-nlp/SWE-Bench_Lite \
+  --split test \
+  --predictions_path /path/to/preds.jsonl \
+  --max_workers 4 \
+  --run_id agenticml-swe-smoke
+```
+
+Logs: `logs/run_evaluation/` under the working directory. Primary metric: **resolved rate** (instance-level pass).
+
+**AgenticML harness:**
+
+- Subset: `agenticml.evaluation.benchmarks.swe.subset`
+- Prelude: `instance_to_prelude` builds goal/mission from `problem_statement` + SWE instructions
+- Tools: `registry_from_env` maps AgenticML `bash` actions to mini-swe `env.execute` (captures `COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` as `model_patch`)
+- Loop: `run_agenticml_swe(backend, bridge, instance)` drives `AgenticMLBackend.step` until submit or limit
+- Task entry: `agenticml.evaluation.benchmarks.swe.agenticml.run_one_task` / `swe.chatml.run_one_task` wire Docker env + loop; `io.pred_entry` for `preds.json`
+- Grading: `agenticml.evaluation.benchmarks.swe.score` writes `preds.json`, calls `swebench.harness.run_evaluation`, and reads resolved rate from the upstream report
+
+CLI:
+
+```bash
+# inference only (no docker grader) — smoke with 3 instances
+agenticml eval-benchmarks --suite swe --format agenticml --model <model> --num-examples 3 --no-score
+
+# full run: agent loop + swebench grader
+agenticml eval-benchmarks --suite swe --format agenticml --model <model> --num-examples 3
+
+# grade existing result rows
+agenticml eval-benchmarks --suite swe --format agenticml --model <model> --score-only
+```
+
+Output: `results/benchmarks/swe/<format>/summary.json` (envelope), per-instance rows under `results/benchmarks/swe/<model_slug>/`, grader artifacts under `results/benchmarks/swe/score/<model_slug>/`.
+
+**Smoke checklist:**
+
+1. `docker info` succeeds.
+2. `python -c "from agenticml.evaluation.benchmarks.swe.subset import load_subset; print(len(load_subset().entries))"` → `30`.
+3. `mini-extra swebench-single --subset lite --split test -i astropy__astropy-14995 ...` completes one trajectory (optional).
+4. Grade a tiny preds file with `run_evaluation` (optional).
+
+#### Sync Benchmark Results (RunPod → Laptop)
+
+RunPod SSH proxy often breaks `scp`. Use a private Hub dataset.
+
+**Hub dataset:** `kosiasuzu/agenticml-runpod-benchmarks-jun2026` (`repo-type=dataset`)
+
+On pod:
+
+```bash
+cd /agenticml && source venv/bin/activate
+export HF_TOKEN=...   # or: huggingface-cli login
+
+tar czf /tmp/benchmarks_done.tgz \
+  results/benchmarks/bfcl \
+  results/benchmarks/toolbench \
+  results/benchmarks/score
+ls -lh /tmp/benchmarks_done.tgz
+
+huggingface-cli upload kosiasuzu/agenticml-runpod-benchmarks-jun2026 \
+  /tmp/benchmarks_done.tgz \
+  runpod-jun2026/benchmarks_done.tgz \
+  --repo-type dataset \
+  --commit-message "bfcl + toolbench full run"
+```
+
+On laptop:
+
+```bash
+cd ~/Developer/agenticml
+huggingface-cli login   # once, if needed
+
+hf download kosiasuzu/agenticml-runpod-benchmarks-jun2026 \
+  runpod-jun2026/benchmarks_done.tgz \
+  --repo-type dataset \
+  --local-dir results/hf
+
+mkdir -p results
+tar xzf results/hf/runpod-jun2026/benchmarks_done.tgz -C .
+# tarball paths are results/benchmarks/... — extract at repo root, not under results/benchmarks/
+```
+
+Verify full run (not stale smoke):
+
+```bash
+python -c "import json; d=json.load(open('results/benchmarks/bfcl/agenticml/summary.json')); print(len(d['tasks']), 'tasks')"
+# expect 45
+```
+
+Use **`tmux`** for long `eval-run-all` jobs so SSH drops do not hide progress. Decisions log (subset trim, bridge fix, etc.): [`docs/report.md`](docs/report.md).
+
 ---
 
-### 5. per-suite smoke (catch errors before long runs)
+### 5. Per-Suite Smoke (Catch Errors Before Long Runs)
 
 Use **merged** model ids. Run these in order; each step should finish in minutes (except first SWE docker pull).
 
-#### format validity (parse + structure)
+#### Format Validity (Parse + Structure)
 
 ```bash
 agenticml eval-benchmarks --suite format_validity --format agenticml \
@@ -288,7 +544,7 @@ agenticml eval-benchmarks --suite format_validity --format chatml \
   --num-examples 5 --output-dir results/benchmarks/format_validity
 ```
 
-#### toolbench (cached tools, no live api)
+#### ToolBench (Cached Tools, No Live API)
 
 ```bash
 agenticml eval-benchmarks --suite toolbench --format agenticml \
@@ -296,7 +552,7 @@ agenticml eval-benchmarks --suite toolbench --format agenticml \
   --num-examples 1 --output-dir results/benchmarks/toolbench
 ```
 
-#### bfcl (subset)
+#### BFCL (Subset)
 
 ```bash
 agenticml eval-benchmarks --suite bfcl --format agenticml \
@@ -304,10 +560,10 @@ agenticml eval-benchmarks --suite bfcl --format agenticml \
   --num-examples 3 --no-score --output-dir results/benchmarks/bfcl
 ```
 
-#### swe (docker; inference only first)
+#### SWE (Docker; Inference Only First)
 
 ```bash
-# pre-pull images — can take 10–30+ min first time; see docs/eval_swe_bench.md
+# pre-pull images — can take 10–30+ min first time; see recipe.md § SWE-bench-Lite Evaluation
 python -c "
 from agenticml.evaluation.benchmarks.swe.env import pull_instance_image
 from agenticml.evaluation.benchmarks.swe.subset import load_entries
@@ -323,7 +579,7 @@ SWE_VERBOSE=1 agenticml eval-benchmarks --suite swe --format agenticml \
 
 ---
 
-### 6. full benchmark matrix + publish
+### 6. Full Benchmark Matrix + Publish
 
 ```bash
 # inference-only smoke across suites (no swe docker grade)
@@ -340,9 +596,9 @@ agenticml eval-run-all --score-only --suites bfcl swe
 agenticml eval-aggregate-results
 ```
 
-Outputs: `results/benchmarks/<suite>/<format>/summary.json`. Aggregated markdown: [`docs/benchmark_results.md`](docs/benchmark_results.md).
+Outputs: `results/benchmarks/<suite>/<format>/summary.json`. Full results and figures: [`docs/report.md`](docs/report.md) (regenerate matrix: `agenticml eval-aggregate-results`; figures: `python scripts/generate_eval_figures.py`).
 
-#### publish hub model cards
+#### Publish Hub Model Cards
 
 Edit [`model_cards/`](model_cards/) locally, then push each file as the repo `README.md`:
 
@@ -358,7 +614,7 @@ hf upload kosiasuzu/chatml-llama3.1-8b-lora-merged \
 
 ---
 
-## practical notes
+## Practical Notes
 
 | Topic | Guidance |
 |--------|----------|
@@ -373,7 +629,7 @@ hf upload kosiasuzu/chatml-llama3.1-8b-lora-merged \
 
 ---
 
-## quick reference: default merged models
+## Quick Reference: Default Merged Models
 
 | Format | Merged checkpoint |
 |--------|-------------------|
@@ -386,6 +642,6 @@ ChatML inference: `AutoTokenizer.from_pretrained(kosiasuzu/chatml-llama3.1-8b-lo
 
 ---
 
-## format A/B: same task, two serializations
+## Format A/B: Same Task, Two Serializations
 
 See [README — same task, two traces](README.md#same-task-two-traces-agenticml-vs-chatml) and model cards for side-by-side examples. Conversion logic: [`src/agenticml/bridge.py`](src/agenticml/bridge.py).

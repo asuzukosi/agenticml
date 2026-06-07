@@ -97,7 +97,7 @@ agenticml train-on-format --format chatml \
 # --- eval setup (benchmark dependencies) ---
 pytest tests/evaluation/benchmarks/ -q --ignore=tests/evaluation/benchmarks/swe/test_smoke_pipeline.py
 
-# from repo root; see docs/eval_dependencies.md
+# from repo root; see recipe.md §4 eval dependencies
 pip install --upgrade pip
 pip install -e ".[eval]"
 
@@ -169,7 +169,7 @@ agenticml eval-benchmarks \
 
 
 # --- swe-bench-lite ---
-# ops: docs/eval_swe_bench.md
+# ops: recipe.md § SWE-bench-Lite Evaluation
 # requires: docker + containerd running, git submodule update --init third_party/mini-swe-agent third_party/SWE-bench
 # pre-pull eval images (first pull can take 10-30+ min; eval times out at ~600s otherwise)
 python -c "
@@ -227,7 +227,7 @@ agenticml eval-run-all \
   --suites bfcl toolbench format_validity
 
 # full published matrix: bfcl + toolbench + swe + format_validity × agenticml + chatml
-# long run: gpu for inference; docker for swe grading; see docs/eval_dependencies.md
+# long run: gpu for inference; docker for swe grading; see recipe.md §4
 agenticml eval-run-all --continue-on-error
 
 # re-grade bfcl/swe from existing result rows (no inference)
@@ -235,10 +235,22 @@ agenticml eval-run-all \
   --score-only \
   --suites bfcl swe
 
-# aggregate all summary.json envelopes -> docs/benchmark_results.md
+# aggregate all summary.json envelopes -> results/benchmarks/aggregate_table.md
 agenticml eval-aggregate-results
 # optional paths:
-# agenticml eval-aggregate-results --results-dir results/benchmarks --output docs/benchmark_results.md --json results/benchmarks/aggregate.json
+# agenticml eval-aggregate-results --results-dir results/benchmarks --output results/benchmarks/aggregate_table.md --json results/benchmarks/aggregate.json
+
+# --- sync benchmark artifacts pod -> laptop (hugging face; scp often fails on runpod ssh proxy) ---
+# hub dataset: kosiasuzu/agenticml-runpod-benchmarks-jun2026
+# on pod (after eval):
+#   cd /agenticml && source venv/bin/activate
+#   tar czf /tmp/benchmarks_done.tgz results/benchmarks/bfcl results/benchmarks/toolbench results/benchmarks/score
+#   huggingface-cli upload kosiasuzu/agenticml-runpod-benchmarks-jun2026 /tmp/benchmarks_done.tgz runpod-jun2026/benchmarks_done.tgz --repo-type dataset --commit-message "bfcl + toolbench"
+# on laptop:
+#   hf download kosiasuzu/agenticml-runpod-benchmarks-jun2026 runpod-jun2026/benchmarks_done.tgz --repo-type dataset --local-dir results/hf
+#   mkdir -p results && tar xzf results/hf/runpod-jun2026/benchmarks_done.tgz -C .
+#   agenticml eval-aggregate-results
+# see docs/report.md and recipe.md § sync benchmark results
 
 
 # --- publish hub model cards (README.md) ---

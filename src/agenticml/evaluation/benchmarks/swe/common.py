@@ -59,7 +59,7 @@ def ensure_swebench_importable() -> None:
         "or install the submodule package:\n"
         "  git submodule update --init third_party/SWE-bench\n"
         "  pip install -e third_party/SWE-bench\n"
-        "see docs/eval_dependencies.md"
+        "see recipe.md §4"
     )
 
 

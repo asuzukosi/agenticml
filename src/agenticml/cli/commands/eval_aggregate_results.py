@@ -23,7 +23,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument(
         "--output",
         type=Path,
-        default=root / "docs" / "benchmark_results.md",
+        default=root / "results" / "benchmarks" / "aggregate_table.md",
         help="markdown table output",
     )
     p.add_argument(

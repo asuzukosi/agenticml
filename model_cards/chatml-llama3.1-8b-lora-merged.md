@@ -202,20 +202,22 @@ Fill from your W&B / cluster logs (GPU type, world size, wall-clock, peak VRAM).
 
 ### Results
 
-Upstream benchmark matrix (subset runs, seed 42). Full table: [`docs/benchmark_results.md`](../docs/benchmark_results.md). Regenerate: `agenticml eval-aggregate-results`.
+Full upstream benchmark run on RunPod L40S (June 2026): BFCL subset **n=45**, ToolBench G1 **n=10**, seed 42. Format validity **100%** parse/valid (prior validation smokes). Analysis: [`docs/report.md`](../docs/report.md).
 
 | Suite | n | Primary | Secondary | avg_tokens | avg_wall_sec |
 |-------|---|---------|-----------|------------|--------------|
-| bfcl | 5 | accuracy 60% | avg_retry 1.6 | 20,139 | 192s |
-| toolbench | 2 | pass 0% | avg_steps 12 | 40,350 | 848s |
-| format_validity | — | not run | — | — | — |
-| swe (lite) | — | not run | — | — | — |
+| format_validity | smoke | valid **100%** | parse **100%** | — | — |
+| bfcl | 45 | accuracy **60.0%** (27/45) | avg_retry **1.6** | 14,268 | 3.9s |
+| toolbench | 10 | pass **0%** | avg_steps 9.8 | 21,542 | 11s |
 
-Paired AgenticML model on the same suites: [`agenticml-llama3.1-8b-lora-merged.md`](agenticml-llama3.1-8b-lora-merged.md).
+**BFCL highlights:** simple_python 12/12, multiple 4/4, live_multiple 6/6; parallel 0/4 (single call when many required). ToolBench: all tasks failed structurally (`no finish`).
+
+Paired AgenticML on the same suites: **4.4%** BFCL, **0%** ToolBench. See [`agenticml-llama3.1-8b-lora-merged.md`](agenticml-llama3.1-8b-lora-merged.md).
 
 ```bash
-agenticml eval-benchmarks --suite <bfcl|toolbench|swe|format_validity> --format chatml --model kosiasuzu/chatml-llama3.1-8b-lora-merged
-agenticml eval-run-all --dry-run
+agenticml eval-benchmarks --suite bfcl --format chatml \
+  --model kosiasuzu/chatml-llama3.1-8b-lora-merged
+agenticml eval-run-all --suites bfcl toolbench format_validity
 agenticml eval-aggregate-results
 ```
 

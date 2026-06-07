@@ -72,7 +72,7 @@ recoverable agent behavior than a chat envelope retrofitted with tool calls.
 
 **End-to-end walkthrough:** [`recipe.md`](recipe.md) — base Llama → init → dataset → train both formats → eval, with smoke tests at each step.
 
-Model cards: [`model_cards/`](model_cards/). Benchmark ops: [`docs/eval_dependencies.md`](docs/eval_dependencies.md), [`docs/eval_swe_bench.md`](docs/eval_swe_bench.md). Published results: [`docs/benchmark_results.md`](docs/benchmark_results.md).
+Model cards: [`model_cards/`](model_cards/). Eval setup and SWE ops: [`recipe.md`](recipe.md). Results and report: [`docs/report.md`](docs/report.md).
 
 All CLI commands use **merged** checkpoints for inference and eval (`--model ...-lora-merged`). LoRA training pushes adapters to `<hub-repo-id>-adapter` and merged weights to `--hub-repo-id`.
 
@@ -90,7 +90,7 @@ After `pip install -e .` (plus extras as needed), use the `agenticml` CLI or `py
 | `agenticml eval-benchmarks --suite format_validity` | `eval` | Generate and score format validity |
 | `agenticml eval-benchmarks` | `eval-benchmarks` | BFCL / ToolBench / SWE subset inference + scoring (agenticml or chatml) |
 | `agenticml eval-run-all` | `eval-benchmarks` | Run full benchmark matrix (suites × formats) |
-| `agenticml eval-aggregate-results` | `eval-benchmarks` | Publish `docs/benchmark_results.md` from result envelopes |
+| `agenticml eval-aggregate-results` | `eval-benchmarks` | Aggregate summary envelopes to `results/benchmarks/aggregate_table.md` |
 | `agenticml data-clean-push` | `data` | Validate, add ChatML `messages`, split, push dataset |
 | `agenticml data-synthetic-gen` | `data-gen` | Parallel synthetic trajectory generation |
 
@@ -187,8 +187,10 @@ use `reserved_to_markers()` only for logs or docs.
   the agentic template on the tokenizer; ChatML merged checkpoints ship the
   Llama 3.1 Instruct chat template (not the base model tokenizer).
  
-## Example trajectory
- 
+## Example Trajectory (Marker View)
+
+Compact single-line form — see [Same Task, Two Traces](#same-task-two-traces-agenticml-vs-chatml) for JSON trajectories, reserved-token wire, and per-step generation.
+
 ```
 <|goal|>You are a coding assistant.<|mission|>How many lines are in main.py?<|obs|>tools:
 namespace tools {
@@ -197,28 +199,118 @@ namespace tools {
 }<|action|>{"tool":"read_file","path":"main.py"}<|end|><|result|>{"tool":"read_file","value":"def main():\n    print('hi')\n"}<|belief|>main.py has 2 lines.<|action|>{"tool":"answer","text":"main.py has 2 lines."}<|end|>
 ```
 
-## Same task, two traces (AgenticML vs ChatML)
+## Same Task, Two Traces (AgenticML vs ChatML)
 
-The project trains and evaluates **paired** models on the **same** underlying trajectories. AgenticML keeps tool semantics in typed frames; ChatML maps the same story onto role-delimited wire (see [`bridge.py`](src/agenticml/bridge.py)).
+The project trains and evaluates **paired** models on the **same** underlying trajectories. Each dataset row stores two views of one agent run: `frames` (AgenticML) and `messages` (ChatML). [`bridge.py`](src/agenticml/bridge.py) is the single source of truth for conversion.
 
-**Task:** count lines in `main.py` using `read_file`, then answer.
+**Task:** Count lines in `main.py` using `read_file`, then answer.
 
-### AgenticML wire (frames)
+### 1. Structured trajectory (dataset fields)
+
+These are the **inputs** to training and eval — not the raw token string yet.
+
+**AgenticML** — typed frames (`trajectory.to_dict()` / dataset column `frames`):
+
+```json
+[
+  {"type": "goal", "content": "You are a coding assistant."},
+  {"type": "obs", "content": "tools:\nnamespace tools {\n  type read_file = (_: { path: string }) => any;\n  type answer = (_: { text: string }) => any;\n}"},
+  {"type": "mission", "content": "How many lines are in main.py?"},
+  {"type": "action", "content": {"tool": "read_file", "path": "main.py"}},
+  {"type": "end", "content": null},
+  {"type": "result", "content": {"tool": "read_file", "value": "def main():\n    print('hi')\n"}},
+  {"type": "action", "content": {"tool": "answer", "text": "main.py has 2 lines."}},
+  {"type": "end", "content": null}
+]
+```
+
+**ChatML** — role messages (`bridge.frames_to_messages(frames)` / dataset column `messages`):
+
+```json
+[
+  {
+    "role": "system",
+    "content": "You are a coding assistant.\n\ntools:\nnamespace tools {\n  type read_file = (_: { path: string }) => any;\n  type answer = (_: { text: string }) => any;\n}"
+  },
+  {"role": "user", "content": "How many lines are in main.py?"},
+  {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [{
+      "id": "call_2",
+      "type": "function",
+      "function": {"name": "read_file", "arguments": "{\"path\": \"main.py\"}"}
+    }]
+  },
+  {
+    "role": "tool",
+    "tool_call_id": "call_2",
+    "content": "{\"tool\": \"read_file\", \"value\": \"def main():\\n    print('hi')\\n\"}"
+  },
+  {"role": "assistant", "content": "main.py has 2 lines."}
+]
+```
+
+### 2. Frame ↔ message mapping
+
+| AgenticML frame | ChatML message |
+|-----------------|----------------|
+| `goal` + `obs` (runtime context) | One `system` message (goal prose, then tool schemas) |
+| `mission` | `user` |
+| `think` (optional) | Prefix text on the next `assistant` message |
+| `action` + `end` (tool call) | `assistant` with `tool_calls` |
+| `result` | `tool` (JSON payload) |
+| `action` + `end` (`answer` terminal tool) | Plain `assistant` text |
+| `feedback` | Extra `user` turn after the first mission |
+
+Runtime-owned frames (`goal`, `obs`, `mission`, `result`, …) are injected by the agent loop; model-owned frames (`think`, `action`, `end`, …) are generated.
+
+### 3. Prompt wire (tokenizer input)
+
+Both formats flatten the structured trajectory into one token stream. **Delimiters differ:** AgenticML uses one reserved token per frame type; ChatML uses role header / end-of-turn tokens.
+
+#### AgenticML — marker view (logs, `parse()`)
+
+Each payload runs until the **next frame token** (no closing tag per frame):
 
 ```
-<|goal|>You are a coding assistant.<|obs|>tools:
+<|goal|>You are a coding assistant.
+<|obs|>tools:
 namespace tools {
   type read_file = (_: { path: string }) => any;
   type answer = (_: { text: string }) => any;
-}<|mission|>How many lines are in main.py?<|action|>{"tool":"read_file","path":"main.py"}<|end|><|result|>{"tool":"read_file","value":"def main():\n    print('hi')\n"}<|action|>{"tool":"answer","text":"main.py has 2 lines."}<|end|>
+}
+<|mission|>How many lines are in main.py?
+<|action|>{"tool":"read_file","path":"main.py"}<|end|>
+<|result|>{"tool":"read_file","value":"def main():\n    print('hi')\n"}
+<|action|>{"tool":"answer","text":"main.py has 2 lines."}<|end|>
 ```
 
-### ChatML wire (same task)
+#### AgenticML — model wire (what Llama actually sees)
 
-Llama 3.1 `apply_chat_template` on the bridged conversation (date preamble omitted):
+`render_trajectory()` / `apply_chat_template` on `frames` emits **reserved slots** (see [Design decisions](#design-decisions) for the full map). Same text, frame boundaries shown with `\n` for readability:
 
 ```
-<|start_header_id|>system<|end_header_id|>
+<|reserved_special_token_0|>You are a coding assistant.
+<|reserved_special_token_2|>tools:
+namespace tools {
+  type read_file = (_: { path: string }) => any;
+  type answer = (_: { text: string }) => any;
+}
+<|reserved_special_token_1|>How many lines are in main.py?
+<|reserved_special_token_6|>{"tool":"read_file","path":"main.py"}<|reserved_special_token_7|>
+<|reserved_special_token_8|>{"tool":"read_file","value":"def main():\n    print('hi')\n"}
+<|reserved_special_token_6|>{"tool":"answer","text":"main.py has 2 lines."}<|reserved_special_token_7|>
+```
+
+Use `reserved_to_markers(wire)` when reading model output in docs or debug logs.
+
+#### ChatML — prompt wire (history + context)
+
+Llama 3.1 Instruct `apply_chat_template` on `messages` (date preamble omitted):
+
+```
+<|begin_of_text|><|start_header_id|>system<|end_header_id|>
 
 You are a coding assistant.
 
@@ -230,20 +322,44 @@ namespace tools {
 
 How many lines are in main.py?<|eot_id|><|start_header_id|>assistant<|end_header_id|>
 
-{"name": "read_file", "parameters": "{\"path\": \"main.py\"}"}<|eot_id|><|start_header_id|>ipython<|end_header_id|>
+<|python_tag|>{"name": "read_file", "parameters": "{\"path\": \"main.py\"}"}<|eom_id|><|eot_id|><|start_header_id|>ipython<|end_header_id|>
 
 {"tool": "read_file", "value": "def main():\n    print('hi')\n"}<|eot_id|><|start_header_id|>assistant<|end_header_id|>
 
 main.py has 2 lines.<|eot_id|>
 ```
 
-When the model **generates** a tool call (not the history wire above), training uses a compact assistant fragment:
+Role headers (`<|start_header_id|>…<|end_header_id|>`) and turn ends (`<|eot_id|>`, `<|eom_id|>`) play the same structural role as AgenticML frame tokens: they **segment** the stream into speaker spans instead of typed frames.
 
-```
-<|python_tag|>{"name": "read_file", "arguments": "{\"path\": \"main.py\"}"}<|eom_id|>
-```
+### 4. Model output (one generation step)
 
-**Takeaway:** AgenticML names the *kind* of turn (`action`, `result`, …) in the token stream; ChatML names the *speaker* (`assistant`, `ipython`, …) in header tokens and embeds tool JSON in assistant spans. The benchmark harness converts between them so both formats face identical tasks and scorers where possible.
+After the prompt ends at the last context frame / message, the model **generates** the next model-owned span.
+
+**Step A — first tool call**
+
+| | Generated text |
+|---|----------------|
+| **AgenticML** | `<\|reserved_special_token_6\|>{"tool":"read_file","path":"main.py"}<\|reserved_special_token_7\|>` |
+| **AgenticML** (markers) | `<\|action\|>{"tool":"read_file","path":"main.py"}<\|end\|>` |
+| **ChatML** | `<\|python_tag\|>{"name": "read_file", "arguments": "{\"path\": \"main.py\"}"}<\|eom_id\|>` |
+
+The runtime parses that span, executes `read_file`, then **appends** a runtime frame / message (not generated by the model):
+
+| | Runtime injection |
+|---|-------------------|
+| **AgenticML** | `<\|reserved_special_token_8\|>{"tool":"read_file","value":"def main():\\n    print('hi')\\n"}` |
+| **ChatML** | `<\|start_header_id\|>ipython<\|end_header_id\|>\n\n{"tool": "read_file", "value": "..."}<\|eot_id\|>` |
+
+**Step B — final answer**
+
+| | Generated text |
+|---|----------------|
+| **AgenticML** | `<\|action\|>{"tool":"answer","text":"main.py has 2 lines."}<\|end\|>` |
+| **ChatML** | `main.py has 2 lines.<\|eot_id\|>` (plain assistant text; terminal `answer` tool collapsed to text in ChatML) |
+
+### Takeaway
+
+AgenticML names the **kind of turn** (`action`, `result`, `end`, …) with dedicated tokens; ChatML names the **speaker** (`system`, `user`, `assistant`, `ipython`) and embeds tool JSON inside those spans. The benchmark harness converts between representations so both formats face the same tasks where possible. Full pipeline: [`recipe.md`](recipe.md).
 
 ## Comparison to ChatML and Harmony
  
@@ -291,17 +407,3 @@ When the model **generates** a tool call (not the history wire above), training 
   runtime-owned frames in strict mode.
 - **Tool schemas are caller-owned.** Use `with_tool_obs(trajectory, tools)`
   once before `step()`; `step()` tokenizes the trajectory as given.
-## Next steps
- 
-- [x] HF generator (`HfGenerator` in `runtime/hf_generator.py`, wraps `AutoModelForCausalLM.generate`)
-- [x] CLI pipelines (`agenticml` commands; see Commands above and `command.txt`)
-- [x] Synthetic data generation (`agenticml data-synthetic-gen`)
-- [x] Supervised train command (`agenticml train-on-format`; `--format agenticml|chatml`, `--mode lora|full`)
-- [x] Format validity eval (`agenticml eval-benchmarks --suite format_validity`)
-- [x] Hand-authored seed trajectories
-- [x] Synthetic data generation pipeline
-- [x] LoRA fine-tune of Llama-3.1-8B-base on the AgenticML format
-- [x] ChatML+tools baseline fine-tune on matched data
-- [x] BFCL subset eval (`agenticml eval-benchmarks --suite bfcl`)
-- [x] ToolBench upstream subset (`agenticml eval-benchmarks --suite toolbench`)
-- [x] SWE-bench-Lite subset (`agenticml eval-benchmarks --suite swe`; see [`docs/eval_swe_bench.md`](docs/eval_swe_bench.md))

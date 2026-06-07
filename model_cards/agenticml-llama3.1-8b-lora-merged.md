@@ -179,20 +179,22 @@ torchrun --standalone --nproc_per_node=2 -m agenticml.cli.commands.train_on_form
 
 ## Evaluation
 
-Upstream benchmark matrix (subset runs, seed 42). Full table: [`docs/benchmark_results.md`](../docs/benchmark_results.md). Regenerate: `agenticml eval-aggregate-results`.
+Full upstream benchmark run on RunPod L40S (June 2026): BFCL subset **n=45**, ToolBench G1 **n=10**, seed 42. Format validity **100%** parse/valid (prior validation smokes; no n=100 re-run). SWE-bench not run (no Docker). Full report: [`docs/report.md`](../docs/report.md).
 
 | Suite | n | Primary | Secondary | avg_tokens | avg_wall_sec |
 |-------|---|---------|-----------|------------|--------------|
-| format_validity | 3 | valid 100% | parse 100% | 139 | 31s |
-| bfcl | 5 | accuracy 60% | avg_retry 8.8 | 36,570 | 281s |
-| toolbench | 2 | pass 0% | avg_steps 12 | 30,063 | 736s |
-| swe (lite) | 2 | resolved 0% | avg_iter 3.5 | 10,884 | 221s |
+| format_validity | smoke | valid **100%** | parse **100%** | — | — |
+| bfcl | 45 | accuracy **4.4%** (2/45) | avg_retry **3.9** | 140,018 | 224s |
+| toolbench | 10 | pass **0%** | avg_steps 1.0 | 2,121 | 30s |
 
-Paired ChatML baseline on the same suites: see [`chatml-llama3.1-8b-lora-merged.md`](chatml-llama3.1-8b-lora-merged.md).
+**BFCL by category (agenticml):** simple_python 0/12, multiple 0/4, parallel 0/4, parallel_multiple 2/4, live 0/13, multi_turn 0/8. Most failures are wrong call **shape** (duplicate JSON arrays on single-call tasks), not missing tools — see runpod report.
+
+Paired ChatML on the same suites: **60%** BFCL accuracy, **0%** ToolBench. See [`chatml-llama3.1-8b-lora-merged.md`](chatml-llama3.1-8b-lora-merged.md).
 
 ```bash
-agenticml eval-benchmarks --suite <bfcl|toolbench|swe|format_validity> --format agenticml --model kosiasuzu/agenticml-llama3.1-8b-lora-merged
-agenticml eval-run-all --dry-run
+agenticml eval-benchmarks --suite bfcl --format agenticml \
+  --model kosiasuzu/agenticml-llama3.1-8b-lora-merged
+agenticml eval-run-all --suites bfcl toolbench format_validity
 agenticml eval-aggregate-results
 ```
 

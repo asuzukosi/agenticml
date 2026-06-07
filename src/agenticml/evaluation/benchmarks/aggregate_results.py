@@ -137,14 +137,15 @@ def _fmt_secondary(row: ResultRow) -> str:
 
 def render_markdown(rows: list[ResultRow], *, results_root: Path) -> str:
     lines = [
-        "# benchmark results",
+        "# Benchmark Results Matrix",
         "",
-        "aggregated from `results/benchmarks/<suite>/<format>/summary.json` envelopes.",
-        f"regenerate: `agenticml eval-aggregate-results` (reads `{results_root}`).",
+        "Aggregated from `results/benchmarks/<suite>/<format>/summary.json` envelopes.",
+        f"Regenerate: `agenticml eval-aggregate-results` (reads `{results_root}`).",
+        "Published RunPod numbers and analysis: `docs/report.md`.",
         "",
-        "## matrix",
+        "## Matrix",
         "",
-        "| suite | format | model | n | primary | secondary | avg_tokens | tok/success | avg_wall_sec |",
+        "| Suite | Format | Model | n | Primary | Secondary | Avg Tokens | Tok/Success | Avg Wall Sec |",
         "|-------|--------|-------|---|---------|-----------|------------|-------------|--------------|",
     ]
     order = {
@@ -179,27 +180,27 @@ def render_markdown(rows: list[ResultRow], *, results_root: Path) -> str:
 
     present = {(r.suite, r.format) for r in rows}
     missing = [f"{s}/{f}" for s in _SUITES for f in _FORMATS if (s, f) not in present]
-    lines.extend(["", "## coverage", ""])
+    lines.extend(["", "## Coverage", ""])
     if missing:
-        lines.append("missing cells (not run yet):")
+        lines.append("Missing cells (not run yet):")
         for cell in missing:
             lines.append(f"- `{cell}`")
     else:
-        lines.append("all default matrix cells present (4 suites × 2 formats).")
+        lines.append("All default matrix cells present (4 suites × 2 formats).")
 
     lines.extend(
         [
             "",
-            "## per-suite metrics",
+            "## Per-Suite Metrics",
             "",
-            "| suite | primary | secondary |",
+            "| Suite | Primary | Secondary |",
             "|-------|---------|-----------|",
-            "| format_validity | valid_rate | parse_rate |",
-            "| bfcl | accuracy | avg_retry_count |",
-            "| toolbench | pass_rate (structural) | avg_steps |",
-            "| swe | resolved_rate | avg_iterations |",
+            "| Format Validity | valid_rate | parse_rate |",
+            "| BFCL | accuracy | avg_retry_count |",
+            "| ToolBench | pass_rate (structural) | avg_steps |",
+            "| SWE-bench | resolved_rate | avg_iterations |",
             "",
-            "## sources",
+            "## Sources",
             "",
         ]
     )
